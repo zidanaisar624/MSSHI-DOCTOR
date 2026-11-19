@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+dist/
+build/*
+!build/msshi-doctor.spec
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Local secrets & runtime caches
+.env
+.env.*
+auth.json
+*.key
+*.pem
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# OS & Editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
