@@ -1,152 +1,114 @@
-<p align="center">
-  <img src="assets/msshi-doctor-banner.jpg" alt="MSSHI Doctor — Online Diagnostics, GitHub Diff & Safe Repair" width="100%" />
-</p>
+<p align="center"><img src="assets/msshi-doctor-cover.webp" alt="MSSHI Doctor — periksa instalasi Hermes dan MSSHI" width="100%"></p>
 
-<h1 align="center">
-  <img src="assets/msshi-doctor-icon-64.png" alt="MSSHI Doctor Icon" width="32" align="absmiddle" />
-  &nbsp;MSSHI Doctor App
-</h1>
+# <img src="assets/msshi-doctor-icon-64.png" width="32" alt=""> MSSHI Doctor
 
-<p align="center">
-  <strong>Aplikasi Diagnostik Lokal, Online GitHub Diff, Safe Repair 6-Langkah, dan Rollback 1-Klik untuk Ekosistem MSSHI &amp; Hermes Agent.</strong>
-</p>
+Hermes menampilkan layar abu-abu? Panel Skills macet? Ada file MSSHI yang terhapus? **Mulai dengan pemeriksaan lokal.** Doctor menunjukkan lokasi yang diperiksa, membandingkan file program dengan rilis resmi yang kamu pilih, dan menyediakan cadangan untuk perbaikan file online. Pemeriksaan ini berjalan tanpa chat atau kredit model.
 
-<p align="center">
-  <img src="https://img.shields.io/badge/Python-3.10%2B-38BDF8?style=flat-square" alt="Python 3.10+" />
-  <img src="https://img.shields.io/badge/Dependencies-Zero%20Mandatory-10B981?style=flat-square" alt="Zero Dependencies" />
-  <img src="https://img.shields.io/badge/RAM%20Target-%3C%2080%20MB%20(Win10%204GB)-10B981?style=flat-square" alt="Win10 4GB Friendly" />
-  <img src="https://img.shields.io/badge/Paid%20Model%20Calls-0-10B981?style=flat-square" alt="Zero Paid Calls" />
-  <img src="https://img.shields.io/badge/License-MIT-64748B?style=flat-square" alt="MIT License" />
-</p>
+**Versi aplikasi Doctor 1.1.0** · **Panduan untuk MSSHI v3.1.2** · [Lihat rilis MSSHI yang dijadikan pembanding](https://github.com/zidanaisar624/MSSHI-Mega-Semar-Sang-Hyang-Ismaya/tree/v3.1.2)
 
----
+## Mulai di Windows
 
-## Ringkasan
+| Yang kamu punya | Cara membuka |
+| --- | --- |
+| Paket portabel Windows x64 | Ekstrak seluruh isi ZIP ke satu folder, lalu buka **MSSHI-Doctor.exe**. Python, Node.js, dan Rust sudah tidak diperlukan di komputer pengguna paket ini. Paket hasil build tersedia pada run yang berhasil di [GitHub Actions](https://github.com/zidanaisar624/MSSHI-DOCTOR/actions/workflows/check.yml). Mengunduh artifact dari Actions memerlukan akun GitHub yang sudah masuk. |
+| Python 3.10 atau lebih baru dengan Tk | [Unduh ZIP kode sumber](https://github.com/zidanaisar624/MSSHI-DOCTOR/archive/refs/heads/main.zip), pilih **Extract All**, buka folder yang berisi README ini, lalu klik dua kali **MSSHI_Doctor.bat**. |
+| Ingin membaca dulu | Setelah mengekstrak paket, buka **docs → panduan → index.html** di browser. Pilih gejala untuk melihat perintahnya. Panduan dapat dibuka tanpa internet. |
 
-**MSSHI Doctor App** adalah aplikasi desktop dan CLI mandiri yang dirancang khusus untuk memeriksa kesehatan instalasi lokal **[MSSHI (Mega Semar Sang Hyang Ismaya)](https://github.com/zidanaisar624/MSSHI-Mega-Semar-Sang-Hyang-Ismaya)** dan **Hermes Agent** secara jujur, ringan, dan aman:
+Jika kamu mengunduh dari Actions, buka hasil pemeriksaan bertanda centang, pilih **Artifacts → MSSHI-Doctor-Windows-x64**, lalu ekstrak juga ZIP versi di dalamnya. Letakkan `_internal` di sebelah `MSSHI-Doctor.exe`. Jika jendela gagal muncul, buka PowerShell di folder tersebut dan jalankan `.\msshi-preflight.exe`. Hasilnya menunjukkan komponen paket yang perlu diekstrak kembali.
 
-- **Zero Full-Clone Online GitHub Diff:** Membandingkan file inti lokal terhadap rilis resmi GitHub (`v3.1.2` atau target ref pilihan Anda) via GitHub REST API + `ETag` (`If-None-Match`) caching tanpa perlu `git clone` penuh dan tanpa perlu login GitHub untuk repo publik.
-- **Model Perlindungan 3-Zona Ketat:** Memisahkan file inti MSSHI (**Zona 1**), file milik pengguna seperti `SOUL.md`, `config.yaml`, `.env`, `auth.json` (**Zona 2 — tidak pernah ditimpa otomatis**), dan jalur sensitif lokal (**Zona 3 — dilewati total**).
-- **Safe Repair 6-Langkah Atomik & 1-Click Rollback:** Dry-Run Preview &rarr; Atomic Backup &rarr; Selective Download terpin ke `commit_sha` 40-hex &rarr; Verifikasi Git Blob SHA-1 &amp; penulisan `.tmp` atomik &rarr; Receipt JSON &rarr; Re-check otomatis `msshi doctor --json` + Rollback 1-klik dengan deteksi konflik.
-- **5 Status Jujur:** Membedakan secara tegas antara *Instruksi Ditemukan*, *Rute Terdaftar*, *Runtime Tersedia*, *Akun &amp; Konfigurasi*, dan *Uji Eksekusi Nyata (`0` kredit / `0` panggilan model berbayar)*.
-- **Ramah Laptop Windows 10 RAM 4 GB &amp; Portabel Drive C:/D:** Dibangun dengan **Python 3.10+ stdlib (`tkinter`/`ttk`)** tanpa Electron/Chromium (konsumsi RAM GUI sekitar 30–50 MB), tanpa dependensi wajib pihak ketiga, serta mendeteksi lokasi instalasi secara adaptif (`HERMES_HOME`, `MSSHI_HOME`, Drive `D:` maupun laptop Drive `C:` saja).
+1. Di layar **Mulai di sini**, periksa alamat instalasi MSSHI. Jika keliru, klik **Pilih folder MSSHI…**. Pilih folder program yang berisi antara lain `VERSION.json` dan `scripts/msshi_cli.py`.
+2. Jika Hermes sulit dibuka, pilih **Hermes sulit dibuka atau lambat**. Jika kamu mencurigai ada file program yang hilang, pilih **Bandingkan file dengan GitHub**.
+3. Untuk instalasi yang mengikuti tag tetap, pilih **v3.1.2**. Gunakan **main** bila instalasimu memang mengikuti pembaruan di cabang itu. File dari `main` yang lebih baru bisa berbeda dari tag meski nomor versi di laptop masih sama.
+4. Baca hasilnya. Bila file perlu dikembalikan, pilih file, klik **Preview & Perbaiki Terpilih**, lalu cocokkan nama file dan commit sumber. Klik **Jalankan Perbaikan Aman** setelah kamu setuju. Simpan ID bukti perbaikan (*receipt*) agar perubahan bisa ditelusuri.
 
----
+![Layar awal aplikasi Doctor pada contoh instalasi Windows](docs/panduan/tampilan-doctor.png)
 
-## Pemisahan 2 Repositori
+## Pilih sesuai gejala
 
-- **Repo Aplikasi Ini:** `https://github.com/zidanaisar624/MSSHI-DOCTOR` — berisi kode sumber aplikasi GUI &amp; CLI, aset branding resmi, test suite, dan konfigurasi build.
-- **Repo Referensi Upstream:** `https://github.com/zidanaisar624/MSSHI-Mega-Semar-Sang-Hyang-Ismaya` — dibaca secara read-only sebagai sumber kebenaran saat pengecekan online diff dan pengunduhan selektif file inti Zona 1.
+| Yang kamu lihat | Pemeriksaan pertama | Cara membaca hasil |
+| --- | --- | --- |
+| Layar kosong, gateway terlambat menjawab, atau Skills lambat | **Hermes sulit dibuka atau lambat** | Baca temuan tentang tampilan, gateway, folder skill, Lightcraft, dan perintah MSSHI. Jalankan saran yang cocok dengan gejala yang ditemukan. |
+| Folder instalasi belum ditemukan | **Pilih folder MSSHI…** | Cocokkan lokasi instalasi. Folder aplikasi Doctor dan folder data profil Hermes punya fungsi berbeda. |
+| File hilang atau rusak (`MISSING`, `CORRUPTED`) | **Bandingkan file dengan GitHub** | Periksa daftar dan versi sumber. Pilih hanya file yang perlu dipulihkan. |
+| File berbeda (`DRIFTED`) | Tinjau pilihan sebelum memperbaiki | Perubahan lokalmu atau pembaruan di cabang lain bisa sah. Doctor membiarkan file berbeda ini tidak tercentang saat daftar pertama ditampilkan. |
+| GitHub tidak terjangkau atau kuota permintaan habis | Baca pemeriksaan lokal, lalu ulangi perbandingan ketika koneksi tersedia | Perbandingan lokal atau cache belum membuktikan kondisi rilis di GitHub saat ini. Tunggu verifikasi sumber sebelum menerapkan perbaikan online. |
+| Ingin membatalkan perbaikan sebelumnya | **Batalkan perbaikan sebelumnya** | Pilih bukti `online-repair`, periksa pratinjau pemulihan, lalu konfirmasi. Jika file berubah lagi setelah perbaikan, baca konflik sebelum melanjutkan. |
 
----
+```mermaid
+flowchart TD
+    A["Buka Doctor dan cocokkan folder"] --> B{"Apa gejalanya?"}
+    B -->|Hermes sulit dibuka| C["Baca pemeriksaan gateway, Skills dan tampilan"]
+    B -->|File program bermasalah| D["Bandingkan dengan rilis yang dipakai"]
+    D --> E{"Perlu memulihkan file?"}
+    E -->|Ya| F["Pilih file dan periksa pratinjau"]
+    E -->|Tidak| G["Simpan hasil pemeriksaan"]
+    F --> H["Konfirmasi, lalu simpan bukti perbaikan"]
+    B -->|Batalkan perbaikan| I["Pilih bukti dan tinjau konflik"]
+```
 
-## Cara Menjalankan
+## Panduan interaktif dan laporan
 
-### 1. Mode Desktop GUI (1-Klik di Windows)
-Klik dua kali [`MSSHI_Doctor.bat`](MSSHI_Doctor.bat), atau jalankan dari terminal:
+![Contoh panduan saat pengguna memilih gejala](docs/panduan/panduan-pemula.png)
+
+Buka [panduan interaktif](docs/panduan/index.html) **dari folder hasil ekstraksi**. GitHub menampilkan kode HTML bila dibuka dari halaman repositori. Untuk membaca hasil pemeriksaan dalam bahasa Indonesia, jalankan dari PowerShell di folder Doctor:
 
 ```powershell
-python -m msshi_doctor_app --gui
+.\msshi-doctor.cmd --local --json | Out-File -Encoding utf8 doctor.json
 ```
 
-### 2. Mode CLI (Otomatisasi &amp; JSON)
-Anda dapat langsung menggunakan wrapper [`msshi-doctor.cmd`](msshi-doctor.cmd) atau menginstal paket lokal secara editable (`pip install -e .`):
+Klik **Pilih laporan JSON** di panduan dan pilih `doctor.json`. Panduan meringkas laporan `--local` atau `--online` di perangkatmu. File laporan lengkap dapat memuat lokasi folder di laptop, jadi periksa isinya sebelum membagikannya.
+
+## Perintah PowerShell
+
+Jalankan dari folder yang berisi `msshi-doctor.cmd`. Perbandingan online memerlukan internet dan membaca repositori MSSHI publik. Pemeriksaan lokal dan pratinjau membantu menentukan apakah ada yang perlu diubah.
+
+| Keperluan | Perintah |
+| --- | --- |
+| Cek versi Doctor | `.\msshi-doctor.cmd --version` |
+| Lihat instalasi dan profil | `.\msshi-doctor.cmd --local` |
+| Periksa metadata tanpa memanggil CLI MSSHI | `.\msshi-doctor.cmd --local --skip-cli` |
+| Telusuri masalah saat membuka Hermes | `.\msshi-doctor.cmd --troubleshoot` |
+| Bandingkan file inti dengan tag v3.1.2 | `.\msshi-doctor.cmd --online --ref v3.1.2` |
+| Pratinjau pemulihan satu file | `.\msshi-doctor.cmd --online-fix --dry-run --ref v3.1.2 --files VERSION.json` |
+| Daftar bukti perbaikan | `.\msshi-doctor.cmd --receipts` |
+| Lihat seluruh opsi | `.\msshi-doctor.cmd --help` |
+
+**Contoh pemulihan.** Jika pratinjau menunjukkan bahwa `VERSION.json` memang perlu dikembalikan, terapkan pilihan itu dengan perintah berikut. Untuk instalasi di folder khusus, sertakan `--target-root` dengan jalur yang sama pada pemeriksaan, pratinjau, dan penerapan. Opsi `--hermes-home` dan `--msshi-home` tersedia untuk memilih folder profil dan peluncur secara eksplisit.
 
 ```powershell
-# Diagnostik lokal read-only (5 status jujur, hardware, 6 profil native)
-.\msshi-doctor.cmd --local --json
-
-# Perbandingan online ke GitHub resmi (zero full-clone + ETag cache + fallback offline)
-.\msshi-doctor.cmd --online --json --ref v3.1.2
-
-# Preview rencana perbaikan online (0 file diubah)
-.\msshi-doctor.cmd --online-fix --dry-run --json
-
-# Terapkan perbaikan selektif 6-langkah dengan backup & receipt
-.\msshi-doctor.cmd --online-fix --apply --files VERSION.json scripts/msshi_cli.py --json
-
-# Daftar semua receipt & backup lokal
-.\msshi-doctor.cmd --receipts --json
-
-# Preview & terapkan 1-Click Rollback dari receipt online-repair
-.\msshi-doctor.cmd --rollback <RECEIPT_ID> --dry-run --json
-.\msshi-doctor.cmd --rollback <RECEIPT_ID> --apply --json
-
-# Troubleshooter cepat (Grey screen, Skills timeout, Gateway, Lightcraft, PATH)
-.\msshi-doctor.cmd --troubleshoot --json
+.\msshi-doctor.cmd --online-fix --apply --ref v3.1.2 --files VERSION.json
 ```
 
-### Kode Keluar (Exit Code) Konsisten
-- `0` — `HEALTHY` (semua pemeriksaan inti lulus).
-- `1` — `CORE_ERROR` (file inti rusak/korup, pelanggaran keamanan, atau target tidak ditemukan).
-- `2` — `NEEDS_ATTENTION` (ada file `MISSING`/`DRIFTED`, peringatan `SOUL.md`, atau status `OFFLINE`/`RATE_LIMITED`).
+Pada CLI, pertahankan `--files` untuk membatasi perbaikan ke pilihanmu. Jika daftar itu dihilangkan, semua perbedaan inti yang memenuhi syarat dapat ikut dipulihkan.
 
----
+**Untuk membatalkannya**, salin ID dari `--receipts` dan jalankan pratinjau berikut. Gunakan `--apply` sebagai pengganti `--dry-run` setelah hasil dan targetnya sesuai.
 
-## Arsitektur Keamanan 3-Zona
-
-1. **Zona 1 — MSSHI-Owned Core Files (Boleh Diperbaiki Setelah Preview):**
-   Direktori inti `scripts/`, `hermes_plugins/`, `configs/`, `skills/`, `optional/`, `templates/` serta file root resmi seperti `VERSION.json` dan `README.md`.
-   Status file: `HEALTHY`, `MISSING`, `CORRUPTED` (NUL byte, UTF-8 rusak, 0 byte tak terduga, JSON/Python syntax rusak), dan `DRIFTED`.
-2. **Zona 2 — User-Owned &amp; Custom Files (Dilarang Ditimpa Otomatis):**
-   `SOUL.md`, `config.yaml`, `.env`, `auth.json`, key/sertifikat, pilihan model/provider/endpoint, dan custom skill milik pengguna. Nilai rahasia **tidak pernah dibaca, disimpan, atau dicetak**.
-3. **Zona 3 — Strict Local Protected Paths (Dilewati Total):**
-   Folder pribadi (`1. Private`, `2. Data Diri atau Perkembangan Diri (NP)`), `data/bin/` (`nlm.exe`, `notebooklm-mcp.exe`), konfigurasi `rclone` (`gdrive:`), dan `MSSHI_Recovery/`.
-
-### Pengamanan Tambahan
-- **HTTPS &amp; Host Allowlist Ketat:** Hanya mengizinkan `https://api.github.com/repos/zidanaisar624/MSSHI-Mega-Semar-Sang-Hyang-Ismaya/...` dan `https://raw.githubusercontent.com/zidanaisar624/MSSHI-Mega-Semar-Sang-Hyang-Ismaya/<40-hex-commit-sha>/...`.
-- **Anti-Traversal &amp; Anti-Link:** Menolak path `../`, drive escape, UNC path, symlink, dan Windows junction.
-- **Opsional `GITHUB_TOKEN`:** Jika variabel lingkungan `GITHUB_TOKEN` tersedia, klien menggunakannya di memori untuk memperbesar kuota API tanpa pernah menyimpan atau mencetak token tersebut.
-
----
-
-## 5 Panel GUI Utama
-
-1. **Dashboard Kesehatan:** Hero banner, 5 Status Jujur, telemetri RAM/CPU/Disk (indikator mode hemat RAM), tabel kesehatan 6 profil native, serta tombol perbaikan lokal `msshi doctor --fix` dengan konfirmasi.
-2. **Online GitHub Sync &amp; Diff:** Pemilih ref (`v3.1.2`, `main`) &amp; cakupan (`core`/`full`), indikator status `ONLINE_OK` / `ONLINE_ETAG_CACHED` / `OFFLINE` / `RATE_LIMITED`, filter status, checklist pemilihan per-file, dan ringkasan perlindungan Zona 2 &amp; 3.
-3. **Modal Konfirmasi Perbaikan Aman:** Menampilkan commit terpin, lokasi backup atomik, daftar file dan ukuran unduhan, jaminan perlindungan Zona 2/3, lalu menjalankan 6 langkah secara transaksional.
-4. **Receipt &amp; Rollback Explorer:** Menjelajahi receipt di `msshi-runtime` (hanya hash &amp; metadata aman) serta tombol **Rollback Perbaikan Ini** dengan preview konflik.
-5. **Troubleshooter Cepat:** Pemeriksaan real-time untuk layar Hermes abu-abu (dengan peluncur `--software-rendering`), folder `skills/` berat, ringkasan log gateway, kunci proses Lightcraft, dan cek PATH `msshi`.
-
----
-
-## Struktur Proyek &amp; Pengujian
-
-```text
-MSSHI-DOCTOR/
-├── assets/                          # Banner 16:9 resmi & icon aplikasi (.png + multi-res .ico)
-├── build/msshi-doctor.spec          # Spesifikasi build PyInstaller Windows (.exe)
-├── docs/reports/                    # Laporan implementasi & verifikasi (.md & .pdf)
-├── src/msshi_doctor_app/
-│   ├── constants.py                 # Palet tema, allowlist keamanan, & kebijakan 3-zona
-│   ├── safety.py                    # Hash Git blob/SHA-256, anti-traversal, deteksi korup, atomic I/O
-│   ├── github_client.py             # Klien GitHub zero-clone + ETag cache + selective download
-│   ├── local_probe.py               # Penemuan adaptif C:/D:, jembatan CLI msshi, 5 status jujur
-│   ├── diff_engine.py               # Mesin perbandingan 3-kategori + fallback offline
-│   ├── repair_engine.py             # Mesin Safe Repair 6-langkah + 1-Click Rollback
-│   ├── troubleshooter.py            # 5 pemeriksaan kendala umum Windows & Hermes
-│   ├── cli.py                       # Antarmuka CLI (--local, --online, --online-fix, --rollback)
-│   └── gui.py                       # Antarmuka Desktop modern-minimalis (Tkinter/ttk)
-├── tests/                           # Automated test suite (offline + mock GitHub HTTP server)
-├── MSSHI_Doctor.bat                 # Launcher GUI 1-klik Windows
-├── msshi-doctor.cmd                 # Launcher CLI Windows
-└── pyproject.toml                   # Konfigurasi paket PEP 621
+```powershell
+$id = Read-Host "ID bukti perbaikan"
+.\msshi-doctor.cmd --rollback $id --dry-run
 ```
 
-### Menjalankan Test Suite
+Untuk otomatisasi, tambahkan `--json`. Kode keluar **0** berarti pemeriksaan tersebut selesai tanpa temuan yang memerlukan tindakan, **1** berarti ada kegagalan inti, dan **2** berarti hasil perlu ditinjau. Periksa pesan atau kolom `status` dan `connection_status` untuk mengetahui penyebabnya.
+
+## File apa yang bisa berubah?
+
+Perbaikan online memulihkan **file inti yang kamu pilih** dari repo resmi MSSHI. Doctor mengikat unduhan ke commit GitHub, memverifikasi isi file, dan mencatat cadangan di area runtime untuk pemulihan. Profil seperti `SOUL.md`, pengaturan provider, model, endpoint, base URL, dan kunci API berada di luar cakupan penggantian file program. Status keberadaan profil, alat, dan konfigurasi ditampilkan terpisah dari bukti uji eksekusi. Hasil pemeriksaan lokal tidak memastikan sebuah model berbayar dapat menjawab chat.
+
+## Untuk pengembang
+
+Antarmuka desktop dan mesin perbaikan menggunakan Python/Tk. Panduan menggunakan JavaScript lokal. Untuk membuka Doctor dari kode sumber di lingkungan Python aktif, jalankan `python -m pip install .`, lalu `msshi-doctor --local` atau `msshi-doctor --gui` jika Tk tersedia. Pemeriksa awal Rust opsional memeriksa kesiapan peluncur pada instalasi sumber. Untuk menjalankannya dari checkout:
+
+```powershell
+cargo run --quiet --offline --manifest-path tools/preflight/Cargo.toml -- --doctor-dir .
+```
+
+Jalankan pengujian dari akar repositori:
+
 ```powershell
 $env:PYTHONPATH = "src"
 python -B -m unittest discover -s tests -v
+node --test tests/guide.test.cjs
+cargo test --locked --offline --manifest-path tools/preflight/Cargo.toml
 ```
 
-### Build Executable Mandiri (Opsional)
-```powershell
-pip install pyinstaller
-pyinstaller build/msshi-doctor.spec
-```
-
----
-
-## Lisensi
-
-Dirilis di bawah lisensi [MIT](LICENSE).
+[Alur build Windows](.github/workflows/check.yml) · [Ilustrasi Doctor di aplikasi](assets/msshi-doctor-banner.jpg) · [Laporan implementasi awal v1.0 (PDF)](docs/reports/Laporan_Implementasi_MSSHI_Doctor_App.pdf) · [Lisensi MIT](LICENSE)

@@ -4,14 +4,12 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import json
 from pathlib import Path
-import shutil
-import subprocess
 import uuid
 
 from .constants import DEFAULT_REF, EXIT_CORE_ERROR, EXIT_HEALTHY, EXIT_NEEDS_ATTENTION
 from .diff_engine import run_online_diff
 from .github_client import GitHubClient
-from .local_probe import _hidden_subprocess_kwargs, _run_msshi_json, find_msshi_executable
+from .local_probe import _run_msshi_json, resolve_hermes_home
 from .safety import (
     SecurityViolationError,
     atomic_write_bytes,
@@ -43,6 +41,8 @@ def _select_repair_candidates(diff_report: dict, selected_files: list[str] | Non
             if classify_repo_path(clean, scope=scope) != "zone1_core":
                 raise SecurityViolationError(f"Path outside MSSHI Zone 1 core scope: {clean}")
             if clean not in by_path:
+                if not diff_report.get("commit_sha") or diff_report.get("connection_status") not in ("ONLINE_OK", "ONLINE_ETAG_CACHED"):
+                    continue  # An unverified or unavailable tree cannot establish membership.
                 raise ValueError(f"File not found in upstream GitHub tree: {clean}")
             normalized_selection.append(clean)
         rows = [by_path[p] for p in dict.fromkeys(normalized_selection)]
@@ -92,7 +92,7 @@ def plan_online_repair(
     backup_preview = clean_home / "msshi-runtime" / "backups" / f"online-repair-{ts_preview}"
     total_bytes = sum(int(row.get("upstream_size") or 0) for row in candidates)
 
-    can_apply = bool(candidates) and bool(diff.get("commit_sha")) and diff.get("connection_status") in (
+    verified = bool(diff.get("commit_sha")) and diff.get("connection_status") in (
         "ONLINE_OK",
         "ONLINE_ETAG_CACHED",
     )
@@ -102,7 +102,8 @@ def plan_online_repair(
         "operation": "online_repair_preview",
         "dry_run": True,
         "applied": False,
-        "can_apply": can_apply,
+        "can_apply": bool(candidates) and verified,
+        "verified_upstream": verified,
         "connection_status": diff.get("connection_status"),
         "error_message": diff.get("error_message"),
         "github_repo": diff.get("github_repo"),
@@ -128,7 +129,7 @@ def plan_online_repair(
         "zone2_protected_guarantee": "SOUL.md, config.yaml, .env, auth.json, model/provider & custom skills tidak akan disentuh.",
         "zone3_protected_guarantee": "Private, NP, nlm.exe/notebooklm-mcp.exe, rclone & MSSHI_Recovery dilewati total.",
         "model_calls": 0,
-        "exit_code": EXIT_HEALTHY if not candidates else EXIT_NEEDS_ATTENTION,
+        "exit_code": EXIT_NEEDS_ATTENTION if candidates or not verified else diff["exit_code"],
     }
 
 
@@ -143,11 +144,20 @@ def apply_online_repair(
     cache_dir: Path | None = None,
     run_recheck: bool = True,
     msshi_home: Path | None = None,
+    expected_local_sha256: dict[str, str | None] | None = None,
 ) -> dict:
     """Execute the 6-step atomic online repair: Preview -> Backup -> Download -> Verify -> Receipt -> Re-check."""
     clean_root = reject_links(target_root)
     clean_home = reject_links(hermes_home)
     gh = client or GitHubClient(cache_dir=cache_dir)
+    if expected_local_sha256 is not None:
+        expected_local_sha256 = {
+            normalize_rel_path(path): checksum for path, checksum in expected_local_sha256.items()
+        }
+        if selected_files is None:
+            selected_files = list(expected_local_sha256)
+        elif {normalize_rel_path(path) for path in selected_files} != set(expected_local_sha256):
+            raise ValueError("Pilihan file tidak cocok dengan pratinjau. Ulangi pratinjau.")
 
     plan = plan_online_repair(
         clean_root,
@@ -158,18 +168,7 @@ def apply_online_repair(
         client=gh,
         cache_dir=cache_dir,
     )
-    if plan["planned_count"] == 0:
-        return {
-            **plan,
-            "operation": "online_repair_apply",
-            "dry_run": False,
-            "applied": False,
-            "state": "no_changes_needed",
-            "receipt_id": None,
-            "receipt_path": None,
-            "exit_code": EXIT_HEALTHY,
-        }
-    if not plan["can_apply"] or not plan.get("commit_sha"):
+    if not plan["verified_upstream"]:
         return {
             **plan,
             "operation": "online_repair_apply",
@@ -178,7 +177,22 @@ def apply_online_repair(
             "state": "blocked_offline_or_unpinned",
             "receipt_id": None,
             "receipt_path": None,
-            "exit_code": EXIT_CORE_ERROR,
+            "exit_code": EXIT_NEEDS_ATTENTION,
+        }
+    if expected_local_sha256 is not None:
+        observed = {row["rel_path"]: row["local_sha256"] for row in plan["planned_files"]}
+        if observed != expected_local_sha256:
+            raise ValueError("File berubah sejak pratinjau. Periksa kembali sebelum memperbaiki.")
+    if plan["planned_count"] == 0:
+        return {
+            **plan,
+            "operation": "online_repair_apply",
+            "dry_run": False,
+            "applied": False,
+            "state": "no_changes_needed" if plan["exit_code"] == EXIT_HEALTHY else "nothing_selected_for_repair",
+            "receipt_id": None,
+            "receipt_path": None,
+            "exit_code": plan["exit_code"],
         }
 
     commit_sha = validate_commit_sha(plan["commit_sha"])
@@ -206,14 +220,18 @@ def apply_online_repair(
         actual_blob_sha = git_blob_sha1(downloaded)
         if actual_blob_sha != expected_blob_sha:
             raise ValueError(f"Integrity verification failed for {rel_path}")
+        dest_path = safe_join_within_root(clean_root, rel_path)
         before_bytes = dest_path.read_bytes() if dest_path.is_file() else None
+        before_sha = sha256_bytes(before_bytes) if before_bytes is not None else None
+        if before_sha != item["local_sha256"]:
+            raise ValueError(f"File berubah selama unduhan: {rel_path}. Ulangi pratinjau.")
         staged.append({
             "index": idx,
             "rel_path": rel_path,
             "target_path": dest_path,
             "status_before": item["status"],
             "before_bytes": before_bytes,
-            "sha256_before": sha256_bytes(before_bytes) if before_bytes is not None else None,
+            "sha256_before": before_sha,
             "after_bytes": downloaded,
             "sha256_after": sha256_bytes(downloaded),
             "git_blob_sha_expected": expected_blob_sha,
@@ -228,48 +246,7 @@ def apply_online_repair(
         if row["backup_file"] is not None and row["before_bytes"] is not None:
             atomic_write_bytes(backup_dir / row["backup_file"], row["before_bytes"])
 
-    # Step 4 (Commit) with automatic rollback on any write failure
-    written_rows: list[dict] = []
-    try:
-        for row in staged:
-            dest: Path = row["target_path"]
-            # Guard against concurrent external edits between scan & write
-            current_sha = sha256_bytes(dest.read_bytes()) if dest.is_file() else None
-            if current_sha != row["sha256_before"]:
-                raise ValueError(f"Concurrent modification detected before write: {row['rel_path']}")
-            atomic_write_bytes(dest, row["after_bytes"])
-            written_rows.append(row)
-    except Exception as exc:
-        # Automatic transactional rollback of all files written so far
-        for row in reversed(written_rows):
-            dest = row["target_path"]
-            try:
-                if row["before_bytes"] is not None:
-                    atomic_write_bytes(dest, row["before_bytes"])
-                elif dest.exists():
-                    dest.unlink()
-            except OSError:
-                pass
-        aborted_receipt = {
-            "schema_version": 1,
-            "kind": "msshi-doctor-online-repair",
-            "receipt_id": receipt_id,
-            "timestamp_utc": now.isoformat(),
-            "github_repo": plan["github_repo"],
-            "github_ref": plan["github_ref"],
-            "commit_sha": commit_sha,
-            "target_root": str(clean_root),
-            "hermes_home": str(clean_home),
-            "backup_dir": str(backup_dir),
-            "state": "aborted_rolled_back",
-            "error": str(exc),
-            "files": [],
-        }
-        receipt_dir.mkdir(parents=True, exist_ok=True)
-        atomic_write_json(receipt_path, aborted_receipt)
-        raise
-
-    # Step 5: Persist complete Receipt JSON
+    # Persist recovery metadata before the first change, even if the process is interrupted.
     receipt_payload = {
         "schema_version": 1,
         "kind": "msshi-doctor-online-repair",
@@ -282,7 +259,7 @@ def apply_online_repair(
         "target_root": str(clean_root),
         "hermes_home": str(clean_home),
         "backup_dir": str(backup_dir),
-        "state": "applied",
+        "state": "prepared",
         "zone2_untouched": True,
         "zone3_untouched": True,
         "model_calls": 0,
@@ -305,11 +282,51 @@ def apply_online_repair(
     atomic_write_json(receipt_path, receipt_payload)
     atomic_write_json(backup_dir / "receipt.json", receipt_payload)
 
+    written_rows: list[dict] = []
+    try:
+        for row in staged:
+            dest = safe_join_within_root(clean_root, row["rel_path"])
+            current_sha = sha256_bytes(dest.read_bytes()) if dest.is_file() else None
+            if current_sha != row["sha256_before"]:
+                raise ValueError(f"File berubah sebelum penulisan: {row['rel_path']}")
+            atomic_write_bytes(dest, row["after_bytes"])
+            written_rows.append(row)
+        receipt_payload["state"] = "applied"
+        atomic_write_json(backup_dir / "receipt.json", receipt_payload)
+        atomic_write_json(receipt_path, receipt_payload)
+    except Exception:
+        conflicts = []
+        for row in reversed(written_rows):
+            try:
+                dest = safe_join_within_root(clean_root, row["rel_path"])
+                if not dest.is_file() or sha256_bytes(dest.read_bytes()) != row["sha256_after"]:
+                    conflicts.append(row["rel_path"])
+                elif row["before_bytes"] is not None:
+                    atomic_write_bytes(dest, row["before_bytes"])
+                else:
+                    dest.unlink()
+            except (ValueError, OSError):
+                conflicts.append(row["rel_path"])
+        receipt_payload["state"] = "aborted_partial" if conflicts else "aborted_rolled_back"
+        receipt_payload["rollback_conflicts"] = conflicts
+        for path in (receipt_path, backup_dir / "receipt.json"):
+            try:
+                atomic_write_json(path, receipt_payload)
+            except OSError:
+                pass  # The pre-written recovery journal is still available.
+        raise
+
     # Step 6: Automatic Re-check via msshi doctor --json (read-only)
     recheck_report = None
+    recheck_code = None
     if run_recheck:
-        recheck = _run_msshi_json(["doctor", "--json"], msshi_home=msshi_home)
-        recheck_report = recheck.get("data") if recheck.get("ok") else {"error": recheck.get("error")}
+        recheck = _run_msshi_json(["doctor", "--json"], msshi_home=msshi_home, hermes_home=clean_home)
+        if recheck.get("ok") and isinstance(recheck.get("data"), dict):
+            recheck_report = recheck["data"]
+            recheck_code = recheck["exit_code"]
+        else:
+            recheck_report = {"error": recheck.get("error") or "Pemeriksaan lokal tidak menghasilkan laporan."}
+            recheck_code = EXIT_NEEDS_ATTENTION
 
     return {
         "schema_version": 1,
@@ -329,7 +346,8 @@ def apply_online_repair(
         "zone3_untouched": True,
         "model_calls": 0,
         "post_repair_doctor": recheck_report,
-        "exit_code": EXIT_HEALTHY,
+        "post_repair_exit_code": recheck_code,
+        "exit_code": recheck_code if run_recheck else EXIT_HEALTHY,
     }
 
 
@@ -381,9 +399,13 @@ def rollback_online_repair(
 
     for row in reversed(payload.get("files", [])):
         rel = normalize_rel_path(row["rel_path"])
+        if classify_repo_path(rel, scope=payload.get("scope", "core")) != "zone1_core":
+            raise SecurityViolationError(f"Receipt mencantumkan file di luar lingkup perbaikan: {rel}")
         dest = safe_join_within_root(target_root, rel)
         expected_after = row.get("sha256_after")
         current_sha = sha256_bytes(dest.read_bytes()) if dest.is_file() else None
+        if current_sha == row.get("sha256_before"):
+            continue  # Already restored, or the interrupted transaction did not write this file.
         if current_sha != expected_after:
             conflicts.append({
                 "rel_path": rel,
@@ -441,22 +463,13 @@ def rollback_online_repair(
     return result
 
 
-def run_local_doctor_fix(*, msshi_home: Path | None = None) -> dict:
+def run_local_doctor_fix(*, msshi_home: str | Path | None = None, hermes_home: str | Path | None = None) -> dict:
     """Invoke native `msshi doctor --fix --json` explicitly when chosen by user."""
-    exe = find_msshi_executable(msshi_home)
-    if not exe:
-        return {"ok": False, "error": "msshi CLI tidak ditemukan.", "exit_code": EXIT_CORE_ERROR}
-    try:
-        proc = subprocess.run(
-            [*exe, "doctor", "--fix", "--json"],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=60,
-            **_hidden_subprocess_kwargs(),
-        )
-        data = json.loads(proc.stdout) if proc.stdout.strip() else {}
-        return {"ok": True, "exit_code": proc.returncode, "data": data}
-    except (OSError, ValueError, subprocess.SubprocessError) as exc:
-        return {"ok": False, "error": str(exc), "exit_code": EXIT_CORE_ERROR}
+    res = _run_msshi_json(["doctor", "--fix", "--json"], msshi_home=msshi_home,
+                          hermes_home=resolve_hermes_home(hermes_home), timeout=60)
+    if not res["ok"] or not isinstance(res.get("data"), dict):
+        return {"ok": False, "error": res.get("error") or "Respons JSON Doctor tidak valid.", "exit_code": EXIT_CORE_ERROR}
+    result = {"ok": res["exit_code"] == EXIT_HEALTHY, "exit_code": res["exit_code"], "data": res["data"]}
+    if not result["ok"]:
+        result["error"] = f"Doctor memerlukan perhatian setelah perbaikan (kode {res['exit_code']})."
+    return result

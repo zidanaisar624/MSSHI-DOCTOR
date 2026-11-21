@@ -7,12 +7,14 @@ import json
 import os
 from pathlib import Path
 import urllib.error
+from urllib.parse import quote
 import urllib.request
 
 from .constants import (
     APP_NAME,
     APP_VERSION,
     DEFAULT_REF,
+    HEX_SHA40_RE,
     MAX_SINGLE_DOWNLOAD_BYTES,
     MAX_TREE_RESPONSE_BYTES,
     UPSTREAM_FULL_NAME,
@@ -44,6 +46,13 @@ class TreeSnapshot:
     fallback_available: bool = False
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Official endpoints are addressed directly; never forward a credential on redirect."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
 class GitHubClient:
     """Zero-clone GitHub tree & selective raw file fetcher with ETag caching."""
 
@@ -65,6 +74,7 @@ class GitHubClient:
         self.timeout = timeout
         self.allow_loopback_hosts = allow_loopback_hosts
         self.cache_dir = cache_dir
+        self._opener = urllib.request.build_opener(_NoRedirect())
         # Validate base URLs immediately on construction so untrusted hosts fail fast
         validate_remote_url(
             f"{self.api_base}/repos/{self.repo}/commits/{DEFAULT_REF}",
@@ -93,7 +103,7 @@ class GitHubClient:
     def _cache_file(self, ref: str) -> Path | None:
         if self.cache_dir is None:
             return None
-        safe_name = ref.replace("/", "_").replace("\\", "_")
+        safe_name = ref.replace("/", "~")  # "~" is excluded from our public ref grammar.
         return reject_links(self.cache_dir) / f"github-tree-{safe_name}.json"
 
     def _load_cache(self, ref: str) -> dict | None:
@@ -101,9 +111,24 @@ class GitHubClient:
         if path is None or not path.is_file():
             return None
         try:
+            path = reject_links(path)
+            if path.stat().st_size > MAX_TREE_RESPONSE_BYTES:
+                return None
             data = json.loads(path.read_text(encoding="utf-8"))
-            if isinstance(data, dict) and data.get("repo") == self.repo and isinstance(data.get("entries"), dict):
-                return data
+            if not isinstance(data, dict) or data.get("repo") != self.repo or data.get("ref") != ref:
+                return None
+            commit = validate_commit_sha(data.get("commit_sha"))
+            if HEX_SHA40_RE.fullmatch(ref) and ref != commit:
+                return None
+            if not isinstance(data.get("entries"), dict):
+                return None
+            for rel, entry in data["entries"].items():
+                if normalize_rel_path(rel) != rel or not isinstance(entry, dict):
+                    return None
+                validate_commit_sha(entry.get("sha"))
+                if type(entry.get("size")) is not int or entry["size"] < 0:
+                    return None
+            return data
         except (OSError, ValueError):
             return None
         return None
@@ -132,7 +157,7 @@ class GitHubClient:
     def _http_get_bounded(self, url: str, *, headers: dict[str, str], max_bytes: int) -> tuple[int, dict, bytes]:
         validate_remote_url(url, allowed_repo=self.repo, allow_loopback_hosts=self.allow_loopback_hosts)
         req = urllib.request.Request(url, headers=headers, method="GET")
-        with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+        with self._opener.open(req, timeout=self.timeout) as resp:
             final_url = resp.geturl()
             validate_remote_url(final_url, allowed_repo=self.repo, allow_loopback_hosts=self.allow_loopback_hosts)
             cl = resp.headers.get("Content-Length")
@@ -155,7 +180,7 @@ class GitHubClient:
         clean_ref = validate_git_ref(ref)
         cached = self._load_cache(clean_ref)
         cached_etag = cached.get("etag") if cached else None
-        commit_url = f"{self.api_base}/repos/{self.repo}/commits/{clean_ref}"
+        commit_url = f"{self.api_base}/repos/{self.repo}/commits/{quote(clean_ref, safe='')}"
 
         # Step 1: Resolve ref -> exact 40-char commit SHA (with ETag!)
         commit_sha: str | None = cached.get("commit_sha") if cached else None
@@ -167,13 +192,16 @@ class GitHubClient:
         try:
             _, resp_headers, body = self._http_get_bounded(
                 commit_url,
-                headers=self._headers(etag=commit_etag),
+                headers=self._headers(etag=commit_etag, accept="application/vnd.github.sha"),
                 max_bytes=1024 * 1024,
             )
             rem, reset_utc = self._parse_rate_limit(resp_headers)
-            commit_etag = resp_headers.get("ETag") or resp_headers.get("etag") or commit_etag
-            commit_doc = json.loads(body.decode("utf-8"))
-            commit_sha = validate_commit_sha(str(commit_doc.get("sha", "")))
+            commit_etag = resp_headers.get("ETag") or resp_headers.get("etag")
+            response = body.decode("utf-8").strip()
+            # Also accept the standard JSON commit representation from API-compatible proxies.
+            commit_sha = validate_commit_sha(json.loads(response).get("sha") if response.startswith("{") else response)
+            if HEX_SHA40_RE.fullmatch(clean_ref) and commit_sha != clean_ref:
+                raise ValueError("GitHub mengembalikan commit berbeda dari SHA yang dipilih.")
         except urllib.error.HTTPError as err:
             rem, reset_utc = self._parse_rate_limit(err.headers)
             if err.code == 304 and cached and commit_sha:
@@ -230,6 +258,11 @@ class GitHubClient:
                 rate_limit_reset_utc=reset_utc,
             )
 
+        # A moved branch must never associate the previous tree with the new commit.
+        if cached and cached.get("commit_sha") != commit_sha:
+            cached = None
+            cached_etag = None
+
         # Step 2: Fetch recursive tree pinned to commit_sha (with ETag!)
         tree_url = f"{self.api_base}/repos/{self.repo}/git/trees/{commit_sha}?recursive=1"
         try:
@@ -253,7 +286,7 @@ class GitHubClient:
                 )
             entries: dict[str, dict] = {}
             for item in tree_doc.get("tree", []):
-                if item.get("type") != "blob":
+                if item.get("type") != "blob" or item.get("mode") not in (None, "100644", "100755"):
                     continue
                 raw_path = item.get("path")
                 blob_sha = item.get("sha")
@@ -264,7 +297,7 @@ class GitHubClient:
                 except SecurityViolationError:
                     continue
                 entries[clean_path] = {
-                    "sha": blob_sha,
+                    "sha": validate_commit_sha(blob_sha),
                     "size": int(item.get("size") or 0),
                 }
             self._save_cache(
@@ -347,10 +380,12 @@ class GitHubClient:
         """Selectively download one file pinned to commit_sha and verify its Git blob SHA-1."""
         sha = validate_commit_sha(commit_sha)
         clean_path = normalize_rel_path(rel_path)
-        url = f"{self.raw_base}/{self.repo}/{sha}/{clean_path}"
+        url = f"{self.raw_base}/{self.repo}/{sha}/{quote(clean_path)}"
+        headers = self._headers(accept="*/*")
+        headers.pop("Authorization", None)  # The release files are public.
         _, _, data = self._http_get_bounded(
             url,
-            headers=self._headers(accept="*/*"),
+            headers=headers,
             max_bytes=MAX_SINGLE_DOWNLOAD_BYTES,
         )
         actual_blob_sha = git_blob_sha1(data)

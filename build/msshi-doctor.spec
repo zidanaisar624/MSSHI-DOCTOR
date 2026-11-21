@@ -1,5 +1,5 @@
 # -*- mode: python ; coding: utf-8 -*-
-"""PyInstaller build specification for standalone MSSHI Doctor Windows desktop executable."""
+"""Windows GUI and console launchers sharing a single Python/Tk runtime."""
 
 from pathlib import Path
 
@@ -12,11 +12,8 @@ a = Analysis(
     binaries=[],
     datas=[
         (str(ASSETS / "msshi-doctor.ico"), "assets"),
-        (str(ASSETS / "msshi-doctor-icon.png"), "assets"),
-        (str(ASSETS / "msshi-doctor-icon-256.png"), "assets"),
         (str(ASSETS / "msshi-doctor-icon-64.png"), "assets"),
         (str(ASSETS / "msshi-doctor-banner-ui.png"), "assets"),
-        (str(ASSETS / "msshi-doctor-banner.jpg"), "assets"),
     ],
     hiddenimports=[],
     hookspath=[],
@@ -27,18 +24,24 @@ a = Analysis(
 )
 pyz = PYZ(a.pure)
 
-exe = EXE(
-    pyz,
-    a.scripts,
+def launcher(name, *, console):
+    return EXE(
+        pyz,
+        a.scripts,
+        [],
+        exclude_binaries=True,
+        name=name,
+        console=console,
+        upx=False,
+        icon=str(ASSETS / "msshi-doctor.ico"),
+    )
+
+
+portable = COLLECT(
+    launcher("MSSHI-Doctor", console=False),
+    launcher("msshi-doctor-cli", console=True),
     a.binaries,
     a.datas,
-    [],
     name="MSSHI-Doctor",
-    debug=False,
-    bootloader_ignore_signals=False,
-    strip=False,
     upx=False,
-    console=False,
-    disable_windowed_traceback=False,
-    icon=str(ASSETS / "msshi-doctor.ico"),
 )

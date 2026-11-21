@@ -6,12 +6,13 @@ import os
 from pathlib import Path
 
 from .constants import (
+    CORE_ZONE1_DIRS,
     DEFAULT_REF,
     EXIT_CORE_ERROR,
     EXIT_HEALTHY,
     EXIT_NEEDS_ATTENTION,
+    FULL_ZONE1_DIRS,
     UPSTREAM_FULL_NAME,
-    ZONE3_PROTECTED_SEGMENTS,
 )
 from .github_client import GitHubClient, TreeSnapshot
 from .safety import (
@@ -24,34 +25,39 @@ from .safety import (
     is_zone2_user_owned,
     is_zone3_protected,
     matches_git_blob_sha,
-    normalize_rel_path,
     reject_links,
     safe_join_within_root,
     sha256_bytes,
 )
 
 
-def build_local_tree_snapshot(fallback_root: Path, *, ref: str = DEFAULT_REF) -> TreeSnapshot:
-    """Build a local fallback TreeSnapshot (e.g., from msshi-upstream) when offline."""
+def build_local_tree_snapshot(
+    fallback_root: Path, *, ref: str = DEFAULT_REF, scope: str = "core"
+) -> TreeSnapshot:
+    """Index only the selected scope of a local reference, without opening protected files."""
+    if is_zone3_protected(fallback_root):
+        raise SecurityViolationError("Protected path cannot be used as a fallback reference.")
     root = reject_links(fallback_root)
     entries: dict[str, dict] = {}
+    allowed_dirs = FULL_ZONE1_DIRS if scope == "full" else CORE_ZONE1_DIRS
     if root.is_dir():
         for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
             current = Path(dirpath)
             dirnames[:] = [
                 d
                 for d in dirnames
-                if d not in {".git", "__pycache__", "node_modules", ".venv", "venv"}
-                and not is_reparse_or_symlink(current / d)
+                if (current != root or d in allowed_dirs)
+                and d.casefold() not in {".git", "__pycache__", "node_modules", ".venv", "venv"}
+                and not is_zone2_user_owned(d)
                 and not is_zone3_protected(current / d)
+                and not is_reparse_or_symlink(current / d)
             ]
             for name in filenames:
                 fpath = current / name
-                if is_reparse_or_symlink(fpath) or is_zone3_protected(fpath):
+                rel = fpath.relative_to(root).as_posix()
+                if classify_repo_path(rel, scope=scope) != "zone1_core":
                     continue
-                try:
-                    rel = normalize_rel_path(fpath.relative_to(root).as_posix())
-                except (ValueError, SecurityViolationError):
+                if is_reparse_or_symlink(fpath) or not fpath.is_file():
                     continue
                 try:
                     raw = fpath.read_bytes()
@@ -64,21 +70,26 @@ def build_local_tree_snapshot(fallback_root: Path, *, ref: str = DEFAULT_REF) ->
         ref=ref,
         commit_sha=None,
         entries=entries,
-        from_cache=True,
-        fallback_available=True,
+        from_cache=False,
+        fallback_available=bool(entries),
     )
 
 
 def scan_zone2_user_files(hermes_home: Path | None) -> list[dict]:
     """Passively summarize Zone 2 user-owned files without reading or leaking secret values."""
     items: list[dict] = []
-    if hermes_home is None or not hermes_home.is_dir():
+    if hermes_home is None or is_zone3_protected(hermes_home):
+        return items
+    hermes_home = reject_links(hermes_home)
+    if not hermes_home.is_dir():
         return items
     profile_dirs: list[tuple[str, Path]] = [("default", hermes_home)]
     p_root = hermes_home / "profiles"
-    if p_root.is_dir():
+    if not is_reparse_or_symlink(p_root) and p_root.is_dir():
         for entry in sorted(p_root.iterdir()):
-            if entry.is_dir() and not entry.name.startswith(".") and not (p_root / ".deleted" / entry.name).exists():
+            if entry.name.startswith(".") or is_zone3_protected(entry) or is_reparse_or_symlink(entry):
+                continue
+            if entry.is_dir() and not (p_root / ".deleted" / entry.name).exists():
                 profile_dirs.append((entry.name, entry))
 
     for pid, folder in profile_dirs:
@@ -109,7 +120,7 @@ def scan_zone2_user_files(hermes_home: Path | None) -> list[dict]:
         })
         for fname in ("config.yaml", ".env", "auth.json"):
             fpath = folder / fname
-            if fpath.is_file():
+            if not is_reparse_or_symlink(fpath) and fpath.is_file():
                 items.append({
                     "zone": "ZONE_2_USER_OWNED",
                     "profile": pid,
@@ -207,7 +218,6 @@ def compare_against_tree(
             local_bytes = local_path.read_bytes()
         except OSError:
             counts["corrupted"] += 1
-            repairable_download_bytes += upstream_size
             zone1_files.append({
                 "rel_path": rel_path,
                 "zone": "ZONE_1_MSSHI_CORE",
@@ -217,7 +227,7 @@ def compare_against_tree(
                 "upstream_size": upstream_size,
                 "local_size": 0,
                 "local_sha256": None,
-                "repairable": True,
+                "repairable": False,
             })
             continue
 
@@ -283,13 +293,18 @@ def compare_against_tree(
         "MSSHI_Recovery/",
     ]
 
-    if snapshot.status in ("OFFLINE", "RATE_LIMITED", "ERROR") and not snapshot.entries:
-        overall = snapshot.status
-        exit_code = EXIT_NEEDS_ATTENTION
-    elif counts["corrupted"] > 0:
+    trusted_online_tree = bool(snapshot.commit_sha) and snapshot.status in ("ONLINE_OK", "ONLINE_ETAG_CACHED")
+    if not trusted_online_tree:
+        for row in zone1_files:
+            row["repairable"] = False
+        repairable_download_bytes = 0
+    if counts["corrupted"] > 0:
         overall = "CORRUPTED_FILES_DETECTED"
         exit_code = EXIT_CORE_ERROR
-    elif counts["missing"] > 0 or counts["drifted"] > 0 or zone2_soul_issues:
+    elif not trusted_online_tree:
+        overall = snapshot.status
+        exit_code = EXIT_NEEDS_ATTENTION
+    elif not counts["total_zone1"] or counts["missing"] > 0 or counts["drifted"] > 0 or zone2_soul_issues:
         overall = "NEEDS_ATTENTION"
         exit_code = EXIT_NEEDS_ATTENTION
     else:
@@ -316,7 +331,7 @@ def compare_against_tree(
         "target_root": str(clean_root),
         "summary": {
             **counts,
-            "repairable_count": counts["missing"] + counts["corrupted"] + counts["drifted"],
+            "repairable_count": sum(row["repairable"] for row in zone1_files),
             "repairable_download_bytes": repairable_download_bytes,
             "zone2_user_protected_count": len(zone2_items),
             "zone2_soul_warnings": len(zone2_soul_issues),
@@ -346,8 +361,12 @@ def run_online_diff(
 
     used_local_fallback = False
     if snapshot.status in ("OFFLINE", "RATE_LIMITED", "ERROR") and not snapshot.entries:
-        if local_fallback_root and local_fallback_root.is_dir():
-            fb = build_local_tree_snapshot(local_fallback_root, ref=ref)
+        if (local_fallback_root and not is_zone3_protected(local_fallback_root)
+                and reject_links(local_fallback_root) != reject_links(target_root)):
+            fb = build_local_tree_snapshot(local_fallback_root, ref=ref, scope=scope)
+        else:
+            fb = None
+        if fb is not None and fb.fallback_available:
             fb.error_message = snapshot.error_message
             fb.rate_limit_remaining = snapshot.rate_limit_remaining
             fb.rate_limit_reset_utc = snapshot.rate_limit_reset_utc

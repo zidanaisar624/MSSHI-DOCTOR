@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self' file:; style-src 'self' file:; script-src 'self' file:; connect-src 'none'; form-action 'none'; base-uri 'none'">
+  <title>Panduan pemulihan • MSSHI Doctor</title>
+  <link rel="stylesheet" href="guide.css">
+  <script defer src="guide.js"></script>
+</head>
+<body>
+  <header><img src="../../assets/msshi-doctor-icon-64.png" alt="" width="38" height="38"><strong>MSSHI Doctor</strong><span>Panduan lokal</span></header>
+  <main>
+    <section aria-labelledby="title">
+      <h1 id="title">Apa yang terjadi pada Hermes?</h1>
+      <p class="intro">Pilih gejalanya untuk melihat pemeriksaan pertama. Jalankan perintah dari PowerShell di folder MSSHI-DOCTOR yang sudah diekstrak.</p>
+      <div class="board">
+        <fieldset><legend>Pilih situasi</legend>
+          <label><input type="radio" name="case" value="start" checked> Saya baru mulai</label>
+          <label><input type="radio" name="case" value="startup"> Layar abu-abu atau gagal terbuka</label>
+          <label><input type="radio" name="case" value="files"> File instalasi hilang atau berbeda</label>
+          <label><input type="radio" name="case" value="undo"> Saya ingin membatalkan perbaikan</label>
+        </fieldset>
+        <article class="action" aria-live="polite">
+          <h2 id="next-title">Periksa instalasi lokal</h2>
+          <p id="explanation">Buka aplikasi Doctor atau lihat ringkasan profil, lokasi instalasi, dan kondisi file dari terminal.</p>
+          <div class="cmd"><code id="cmd">.\msshi-doctor.cmd --local</code><button id="copy" type="button">Salin</button></div>
+          <p class="after" id="after">Periksa lokasi instalasi yang ditampilkan sebelum memilih langkah berikutnya.</p>
+        </article>
+      </div>
+    </section>
+    <section class="report" aria-labelledby="report-title">
+      <h2 id="report-title">Baca hasil pemeriksaan</h2>
+      <p>Buat laporan dengan perintah berikut, lalu pilih file JSON-nya. Isi laporan diproses di browser pada perangkat ini.</p>
+      <code class="export">.\msshi-doctor.cmd --local --json | Out-File -Encoding utf8 doctor.json</code>
+      <label class="pick">Pilih laporan JSON <input type="file" accept=".json,application/json" id="report-file"></label>
+      <div id="report-result" role="status" aria-live="polite"></div>
+    </section>
+    <noscript>Aktifkan JavaScript untuk memilih gejala dan membaca laporan. Panduan perintah juga tersedia di README.md.</noscript>
+  </main>
+</body>
+</html>

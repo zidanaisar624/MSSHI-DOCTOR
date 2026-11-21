@@ -12,7 +12,7 @@ import shutil
 import subprocess
 import sys
 
-from .constants import DEFAULT_REF, PROFILE_ID_RE
+from .constants import DEFAULT_REF, EXIT_CORE_ERROR, EXIT_NEEDS_ATTENTION, PROFILE_ID_RE
 from .safety import check_soul_health_passive, is_zone3_protected, reject_links
 
 RELEASE_ID_RE = re.compile(r"^(?:[0-9a-f]{24}|[0-9a-f]{64})$")
@@ -104,6 +104,8 @@ def read_cli_state(msshi_home: Path | None = None) -> dict:
     try:
         reject_links(state_path)
         data = json.loads(state_path.read_text(encoding="utf-8-sig"))
+        if not isinstance(data, dict):
+            raise ValueError("Invalid launcher state document")
     except (OSError, ValueError):
         info["error"] = "unreadable_state_json"
         return info
@@ -147,7 +149,9 @@ def detect_target_ref(target_root: Path | None) -> str:
     """Detect GitHub target ref (e.g. 'v3.1.2') from local VERSION.json, defaulting safely."""
     if target_root and (target_root / "VERSION.json").is_file():
         try:
-            doc = json.loads((target_root / "VERSION.json").read_text(encoding="utf-8-sig"))
+            doc = json.loads(reject_links(target_root / "VERSION.json").read_text(encoding="utf-8-sig"))
+            if not isinstance(doc, dict):
+                return DEFAULT_REF
             ver = str(doc.get("version") or "").strip()
             if re.fullmatch(r"\d+\.\d+\.\d+", ver):
                 return f"v{ver}"
@@ -156,11 +160,8 @@ def detect_target_ref(target_root: Path | None) -> str:
     return DEFAULT_REF
 
 
-def find_msshi_executable(msshi_home: Path | None = None) -> list[str] | None:
-    """Find the local msshi CLI entrypoint cleanly (PATH or MSSHI_HOME/launch.py)."""
-    found = shutil.which("msshi")
-    if found:
-        return [found]
+def find_msshi_executable(msshi_home: str | Path | None = None) -> list[str] | None:
+    """Prefer the chosen installation. Only auto-discovery may fall back to PATH."""
     home = resolve_msshi_home(msshi_home)
     if os.name == "nt":
         cmd = home / "bin/msshi.cmd"
@@ -173,18 +174,31 @@ def find_msshi_executable(msshi_home: Path | None = None) -> list[str] | None:
     launcher = home / "launch.py"
     if launcher.is_file():
         return [sys.executable, "-B", "-X", "utf8", str(launcher)]
+    if msshi_home is None and not os.environ.get("MSSHI_HOME"):
+        found = shutil.which("msshi")
+        if found:
+            return [found]
     return None
 
 
-def _run_msshi_json(args: list[str], *, msshi_home: Path | None = None, timeout: float = 25.0) -> dict:
-    """Run a read-only msshi subcommand and parse JSON stdout safely."""
+def _run_msshi_json(
+    args: list[str], *, msshi_home: str | Path | None = None,
+    hermes_home: str | Path | None = None, timeout: float = 25.0,
+) -> dict:
+    """Run the chosen MSSHI installation with its selected Hermes profile root."""
     exe = find_msshi_executable(msshi_home)
     if not exe:
         return {"ok": False, "exit_code": None, "error": "msshi CLI tidak ditemukan pada PATH atau MSSHI_HOME."}
     cmd = [*exe, *args]
+    env = os.environ.copy()
+    if msshi_home is not None:
+        env["MSSHI_HOME"] = str(resolve_msshi_home(msshi_home))
+    if hermes_home is not None:
+        env["HERMES_HOME"] = str(resolve_hermes_home(hermes_home))
     try:
         proc = subprocess.run(
             cmd,
+            env=env,
             capture_output=True,
             text=True,
             encoding="utf-8",
@@ -373,7 +387,9 @@ def discover_receipts(hermes_home: Path, *, limit: int = 40) -> list[dict]:
                     "github_ref": raw.get("github_ref"),
                     "commit_sha": raw.get("commit_sha"),
                     "target_root": raw.get("target_root") or raw.get("home") or raw.get("hermes_home"),
-                    "can_one_click_rollback": kind == "msshi-doctor-online-repair" and raw.get("state") == "applied",
+                    "can_one_click_rollback": kind == "msshi-doctor-online-repair" and raw.get("state") in (
+                        "applied", "prepared", "aborted_partial", "rollback_conflicts",
+                    ),
                     "rollback_kind": (
                         "online_repair"
                         if kind == "msshi-doctor-online-repair"
@@ -428,16 +444,18 @@ def build_five_honest_statuses(
             "detail": "Output msshi doctor --json belum tersedia.",
         }
 
-    # 2. Rute Terdaftar (CLI-Anything bridge + auto_open_on_boot=false)
+    # 2. Registered routes; startup policy can be absent from older status reports.
     conns = (connect_data or {}).get("connections") or []
     reg_count = sum(1 for c in conns if c.get("registered"))
     if connect_data is not None:
+        policy = connect_data.get("auto_open_on_boot")
+        boot_detail = {True: "aktif", False: "nonaktif"}.get(policy) if isinstance(policy, bool) else "belum diketahui"
         s2 = {
             "id": "routes",
             "title": "2. Rute Terdaftar",
             "status": "OK" if reg_count > 0 else "WARN",
             "badge": f"{reg_count}_REGISTERED",
-            "detail": f"{reg_count} rute terdaftar pada profil aktif (auto_open_on_boot: false).",
+            "detail": f"{reg_count} rute terdaftar pada profil aktif. Buka aplikasi saat startup: {boot_detail}.",
         }
     else:
         s2 = {
@@ -540,12 +558,14 @@ def collect_local_snapshot(
     trim_res = {"ok": False, "exit_code": None, "data": None}
     connect_res = {"ok": False, "exit_code": None, "data": None}
 
-    if run_cli:
-        doctor_res = _run_msshi_json(["doctor", "--json"], msshi_home=m_home)
-        runtime_res = _run_msshi_json(["runtime", "status", "--home", str(h_home), "--json"], msshi_home=m_home)
-        interaction_res = _run_msshi_json(["interaction", "--status", "--home", str(h_home)], msshi_home=m_home)
-        trim_res = _run_msshi_json(["trim", "--status", "--home", str(h_home), "--profile", "default"], msshi_home=m_home)
-        connect_res = _run_msshi_json(["connect", "--status", "--hermes-home", str(h_home), "--json"], msshi_home=m_home)
+    target_exists = resolved_root is not None and resolved_root.is_dir()
+    if run_cli and target_exists:
+        homes = {"msshi_home": msshi_home, "hermes_home": h_home}
+        doctor_res = _run_msshi_json(["doctor", "--json"], **homes)
+        runtime_res = _run_msshi_json(["runtime", "status", "--home", str(h_home), "--json"], **homes)
+        interaction_res = _run_msshi_json(["interaction", "--status", "--home", str(h_home)], **homes)
+        trim_res = _run_msshi_json(["trim", "--status", "--home", str(h_home), "--profile", "default"], **homes)
+        connect_res = _run_msshi_json(["connect", "--status", "--hermes-home", str(h_home), "--json"], **homes)
 
     doctor_data = doctor_res.get("data") if isinstance(doctor_res.get("data"), dict) else None
     runtime_data = runtime_res.get("data") if isinstance(runtime_res.get("data"), dict) else None
@@ -578,7 +598,7 @@ def collect_local_snapshot(
             "advisor_readiness": irow.get("advisor_readiness") or drow.get("advisor_readiness"),
             "council_readiness": irow.get("council_readiness") or drow.get("council_readiness"),
             "reference_count": irow.get("reference_count", 0),
-            "auto_open_on_boot": drow.get("auto_open_on_boot", False),
+            "auto_open_on_boot": drow.get("auto_open_on_boot"),
             "provider_execution_tested": False,
         })
 
@@ -586,8 +606,12 @@ def collect_local_snapshot(
         doctor_data, runtime_data, interaction_data, trim_data, connect_data
     )
 
-    overall_status = (doctor_data or {}).get("status") or ("HEALTHY" if resolved_root else "NEEDS_ATTENTION")
-    exit_code = int((doctor_data or {}).get("exit_code", 0 if resolved_root else 2))
+    if not target_exists:
+        overall_status, exit_code = "CORE_ERROR", EXIT_CORE_ERROR
+    elif doctor_data and "status" in doctor_data and "exit_code" in doctor_data:
+        overall_status, exit_code = doctor_data["status"], int(doctor_data["exit_code"])
+    else:
+        overall_status, exit_code = "NEEDS_ATTENTION", EXIT_NEEDS_ATTENTION
 
     return {
         "schema_version": 1,

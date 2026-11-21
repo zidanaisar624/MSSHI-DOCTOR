@@ -1,0 +1,43 @@
+name: Periksa dan kemas MSSHI Doctor
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Uji mesin Doctor dan peluncur Windows
+        shell: pwsh
+        run: |
+          $env:PYTHONPATH = "src"
+          python -B -X utf8 -m unittest discover -s tests -v
+      - name: Uji panduan browser
+        run: node --test tests/guide.test.cjs
+      - name: Uji pemeriksa awal Rust
+        run: cargo test --locked --offline --manifest-path tools/preflight/Cargo.toml
+      - name: Pasang alat pengemasan
+        run: python -m pip install "pyinstaller>=6,<7"
+      - name: Buat paket portabel
+        shell: pwsh
+        run: ./tools/build-windows.ps1 -OutputDir dist
+      - name: Simpan paket Windows
+        uses: actions/upload-artifact@v4
+        with:
+          name: MSSHI-Doctor-Windows-x64
+          path: dist/MSSHI-Doctor-*-windows-x64.zip
+          if-no-files-found: error

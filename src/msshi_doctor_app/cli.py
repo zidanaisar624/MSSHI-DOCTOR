@@ -31,7 +31,6 @@ from .repair_engine import (
     rollback_online_repair,
     run_local_doctor_fix,
 )
-from .safety import SecurityViolationError
 from .troubleshooter import run_all_troubleshooter_checks
 
 
@@ -115,8 +114,10 @@ def _print_online_human(report: dict) -> None:
             print(f"  - [{row['status']:9s}] {row['rel_path']} ({row.get('reason')}, {row.get('upstream_size', 0)} B)")
         if len(issues) > 30:
             print(f"  ... dan {len(issues) - 30} file lainnya (gunakan --json untuk daftar penuh).")
-    else:
+    elif report.get("connection_status") in ("ONLINE_OK", "ONLINE_ETAG_CACHED") and report.get("summary", {}).get("healthy", 0):
         print("\nSemua file inti MSSHI Zona 1 identik dengan rilis GitHub target.")
+    else:
+        print("\nKecocokan dengan rilis GitHub belum terverifikasi. Periksa koneksi dan ref, lalu ulangi pemeriksaan.")
 
 
 def _print_repair_human(report: dict) -> None:
@@ -124,6 +125,8 @@ def _print_repair_human(report: dict) -> None:
     print(f"{APP_NAME} v{APP_VERSION} — {op}")
     print(f"Repo / Ref    : {report.get('github_repo')} @ {report.get('github_ref')}")
     print(f"Commit SHA    : {report.get('commit_sha') or '-'}")
+    if report.get("verified_upstream") is False:
+        print("Rilis GitHub belum terverifikasi. Perbaikan memerlukan koneksi ke GitHub dan commit yang valid.")
     if report.get("dry_run"):
         print(f"Mode          : DRY-RUN PREVIEW (0 file diubah)")
         print(f"Backup Target : {report.get('backup_dir_preview')}")
@@ -140,6 +143,8 @@ def _print_repair_human(report: dict) -> None:
         print(f"Receipt ID    : {report.get('receipt_id') or '-'}")
         print(f"Backup Folder : {report.get('backup_dir') or '-'}")
         print(f"Diperbaiki    : {report.get('files_repaired', 0)} file (Zona 2 & Zona 3 tidak tersentuh)")
+        if report.get("post_repair_exit_code") not in (None, EXIT_HEALTHY):
+            print("Pemeriksaan lokal setelah perbaikan masih memerlukan perhatian. Jalankan --local untuk rinciannya.")
 
 
 def _print_receipts_human(receipts: list[dict], hermes_home: Path) -> None:
@@ -272,8 +277,8 @@ def run_cli(argv: list[str] | None = None, *, client: GitHubClient | None = None
         if args.local:
             report = collect_local_snapshot(
                 hermes_home=h_home,
-                msshi_home=m_home,
-                target_root=target_root,
+                msshi_home=args.msshi_home,
+                target_root=args.target_root,
                 run_cli=not args.skip_cli,
             )
             if args.json:
@@ -334,7 +339,7 @@ def run_cli(argv: list[str] | None = None, *, client: GitHubClient | None = None
                     client=client,
                     cache_dir=cache_dir,
                     run_recheck=not args.no_recheck,
-                    msshi_home=m_home,
+                    msshi_home=args.msshi_home,
                 )
             else:
                 report = plan_online_repair(
@@ -367,11 +372,19 @@ def run_cli(argv: list[str] | None = None, *, client: GitHubClient | None = None
                 else:
                     print(preview["note"])
                 return EXIT_NEEDS_ATTENTION
-            res = run_local_doctor_fix(msshi_home=m_home)
+            res = run_local_doctor_fix(msshi_home=args.msshi_home, hermes_home=h_home)
             if args.json:
                 _emit_json(res)
             else:
-                print("Local `msshi doctor --fix` selesai." if res.get("ok") else f"Gagal: {res.get('error')}")
+                repair = (res.get("data") or {}).get("repair") or {}
+                if repair.get("applied"):
+                    print(f"Perbaikan lokal memulihkan {repair.get('files_restored', 0)} file.")
+                elif repair.get("applied") is False:
+                    print("Perbaikan lokal tidak mengubah file.")
+                elif res.get("ok"):
+                    print("Pemeriksaan lokal selesai.")
+                if not res.get("ok"):
+                    print(res.get("error"))
             return int(res.get("exit_code", EXIT_CORE_ERROR))
 
         if args.receipts:
@@ -399,8 +412,8 @@ def run_cli(argv: list[str] | None = None, *, client: GitHubClient | None = None
             return int(report.get("exit_code", EXIT_HEALTHY))
 
         if args.troubleshoot:
-            report = run_all_troubleshooter_checks(hermes_home=h_home, msshi_home=m_home)
-            exit_code = EXIT_NEEDS_ATTENTION if report.get("warnings", 0) > 0 else EXIT_HEALTHY
+            report = run_all_troubleshooter_checks(hermes_home=h_home, msshi_home=args.msshi_home)
+            exit_code = EXIT_HEALTHY if report["status"] == "HEALTHY" else EXIT_NEEDS_ATTENTION
             report["exit_code"] = exit_code
             if args.json:
                 _emit_json(report)
@@ -408,7 +421,7 @@ def run_cli(argv: list[str] | None = None, *, client: GitHubClient | None = None
                 _print_troubleshoot_human(report)
             return exit_code
 
-    except (SecurityViolationError, FileNotFoundError, ValueError) as exc:
+    except (OSError, ValueError) as exc:
         err_payload = {
             "status": "ERROR",
             "error_type": type(exc).__name__,

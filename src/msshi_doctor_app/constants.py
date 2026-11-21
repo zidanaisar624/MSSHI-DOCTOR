@@ -7,7 +7,7 @@ import re
 import sys
 
 APP_NAME = "MSSHI Doctor"
-APP_VERSION = "1.0.0"
+APP_VERSION = "1.1.0"
 
 UPSTREAM_OWNER = "zidanaisar624"
 UPSTREAM_REPO = "MSSHI-Mega-Semar-Sang-Hyang-Ismaya"
@@ -164,10 +164,9 @@ def resolve_assets_dir() -> Path:
         if cand.is_dir():
             return cand
     pkg_dir = Path(__file__).resolve().parent
-    for base in (pkg_dir.parent.parent, pkg_dir.parent, pkg_dir, Path.cwd()):
-        cand = base / "assets"
-        if cand.is_dir() and (cand / "msshi-doctor-icon.png").is_file():
-            return cand
+    packaged = pkg_dir / "assets"
+    if packaged.is_dir():
+        return packaged
     return pkg_dir.parent.parent / "assets"
 
 

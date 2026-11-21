@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "msshi-doctor-app"
-version = "1.0.0"
+version = "1.1.0"
 description = "Lightweight CLI & Desktop Diagnostics, Online GitHub Diff, and 6-Step Safe Repair App for MSSHI & Hermes Agent."
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -45,7 +45,8 @@ msshi-doctor = "msshi_doctor_app.cli:main"
 msshi-doctor-gui = "msshi_doctor_app.gui:launch_gui"
 
 [tool.setuptools]
-package-dir = { "" = "src" }
+packages = ["msshi_doctor_app", "msshi_doctor_app.assets"]
+package-dir = { "" = "src", "msshi_doctor_app.assets" = "assets" }
 
-[tool.setuptools.packages.find]
-where = ["src"]
+[tool.setuptools.package-data]
+"msshi_doctor_app.assets" = ["msshi-doctor-banner-ui.png", "msshi-doctor-icon-64.png", "msshi-doctor.ico"]

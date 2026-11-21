@@ -5,9 +5,10 @@ import ctypes
 import json
 import os
 from pathlib import Path
+from queue import Empty, SimpleQueue
 import threading
 import tkinter as tk
-from tkinter import messagebox, ttk
+from tkinter import filedialog, messagebox, ttk
 
 from .constants import (
     APP_NAME,
@@ -33,7 +34,7 @@ from .repair_engine import (
     rollback_online_repair,
     run_local_doctor_fix,
 )
-from .safety import reject_links
+from .safety import is_zone3_protected, reject_links
 from .troubleshooter import launch_hermes_software_rendering, run_all_troubleshooter_checks
 
 
@@ -58,6 +59,9 @@ def _fmt_bytes(num_bytes: int | None) -> str:
     return f"{n / (1024 * 1024):.2f} MB"
 
 
+_WRITE_JOBS = {"repair", "local_fix", "rollback"}
+
+
 class SafeRepairConfirmModal(tk.Toplevel):
     """Panel 3: Confirmation & Progress Modal for 6-Step Atomic Online Safe Repair."""
 
@@ -68,7 +72,7 @@ class SafeRepairConfirmModal(tk.Toplevel):
         *,
         target_root: Path,
         hermes_home: Path,
-        msshi_home: Path,
+        msshi_home: str | Path | None,
         selected_files: list[str],
         ref: str,
         scope: str,
@@ -102,6 +106,7 @@ class SafeRepairConfirmModal(tk.Toplevel):
             except tk.TclError:
                 pass
 
+        self.protocol("WM_DELETE_WINDOW", lambda: None if self._running else self.destroy())
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -261,23 +266,12 @@ class SafeRepairConfirmModal(tk.Toplevel):
         self.cancel_btn.configure(state="disabled")
         self.status_var.set("Mengunduh selektif, memverifikasi SHA, membuat backup & receipt...")
 
-        def worker() -> None:
-            try:
-                res = apply_online_repair(
-                    self.target_root,
-                    self.hermes_home,
-                    ref=self.ref,
-                    scope=self.scope,
-                    selected_files=self.selected_files,
-                    cache_dir=self.cache_dir,
-                    run_recheck=True,
-                    msshi_home=self.msshi_home,
-                )
-                self.after(0, lambda: self._on_done(res, None))
-            except Exception as exc:
-                self.after(0, lambda e=exc: self._on_done(None, e))
-
-        threading.Thread(target=worker, daemon=True).start()
+        self.parent_app._background("repair", lambda: apply_online_repair(
+            self.target_root, self.hermes_home, ref=self.ref, scope=self.scope,
+            selected_files=self.selected_files, cache_dir=self.cache_dir,
+            expected_local_sha256={r["rel_path"]: r["local_sha256"] for r in self.plan["planned_files"]},
+            run_recheck=True, msshi_home=self.msshi_home,
+        ), lambda result: self._on_done(result, None), lambda exc: self._on_done(None, exc))
 
     def _on_done(self, res: dict | None, err: Exception | None) -> None:
         self._running = False
@@ -285,9 +279,13 @@ class SafeRepairConfirmModal(tk.Toplevel):
         if err is not None:
             self.status_var.set(f"Dibatalkan secara aman (rollback otomatis jika sempat menulis): {err}")
             messagebox.showerror("Perbaikan Dibatalkan", str(err), parent=self)
-            self.apply_btn.configure(state="normal", text="Coba Lagi")
+            self.apply_btn.configure(state="disabled", text="Buat pratinjau baru")
             return
         assert res is not None
+        if res.get("state") != "applied":
+            messagebox.showwarning("Belum ada perbaikan", "Pemeriksaan perlu diulang. Buka kembali perbandingan GitHub.", parent=self)
+            self.destroy()
+            return
         rid = res.get("receipt_id") or "-"
         repaired = res.get("files_repaired", 0)
         self.status_var.set(f"Selesai! {repaired} file inti diperbaiki. Receipt: {rid}")
@@ -320,6 +318,7 @@ class MSSSIDoctorGUI(tk.Tk):
     ) -> None:
         super().__init__()
         self.hermes_home = resolve_hermes_home(hermes_home)
+        self._launcher_home = msshi_home
         self.msshi_home = resolve_msshi_home(msshi_home)
         resolved_root, _ = resolve_msshi_target_root(
             target_root, msshi_home=self.msshi_home, hermes_home=self.hermes_home
@@ -332,7 +331,10 @@ class MSSSIDoctorGUI(tk.Tk):
         self._images: dict[str, tk.PhotoImage] = {}
         self._nav_buttons: dict[str, tk.Button] = {}
         self._pages: dict[str, tk.Frame] = {}
-        self._active_page = "dashboard"
+        self._active_page = ""
+        self._working: set[str] = set()
+        self._scanned_options = None
+        self._latest_repair_id = None
 
         self._local_snapshot: dict | None = None
         self._diff_report: dict | None = None
@@ -351,12 +353,13 @@ class MSSSIDoctorGUI(tk.Tk):
         self._load_branding_assets()
         self._configure_styles()
         self._build_layout()
-        self._show_page("dashboard")
+        for selector in (self._ref_var, self._scope_var):
+            selector.trace_add("write", lambda *_: self._update_repair_button_state())
+        self._show_page("guide")
 
         # Kick off lightweight background local refresh immediately
         self.after(80, self.refresh_local_dashboard)
-        self.after(200, self.refresh_receipts)
-        self.after(300, self.refresh_troubleshooter)
+        self.protocol("WM_DELETE_WINDOW", self._request_close)
 
         if auto_close_ms is not None and auto_close_ms > 0:
             self.after(auto_close_ms, self.destroy)
@@ -455,10 +458,11 @@ class MSSSIDoctorGUI(tk.Tk):
         tk.Frame(sidebar, bg=p["border"], height=1).pack(fill="x", padx=14, pady=(0, 12))
 
         nav_items = [
-            ("dashboard", "1. Dashboard Kesehatan"),
-            ("online_diff", "2. Online GitHub Diff"),
-            ("receipts", "3. Receipt & Rollback"),
-            ("troubleshooter", "4. Troubleshooter Cepat"),
+            ("guide", "Mulai di sini"),
+            ("dashboard", "Hasil pemeriksaan lokal"),
+            ("online_diff", "Bandingkan dengan GitHub"),
+            ("receipts", "Riwayat dan pemulihan"),
+            ("troubleshooter", "Cari penyebab masalah"),
         ]
         for key, label in nav_items:
             btn = tk.Button(
@@ -528,6 +532,7 @@ class MSSSIDoctorGUI(tk.Tk):
         self.content_area = tk.Frame(main_col, bg=p["bg"])
         self.content_area.pack(fill="both", expand=True)
 
+        self._pages["guide"] = self._build_guide_page(self.content_area)
         self._pages["dashboard"] = self._build_dashboard_page(self.content_area)
         self._pages["online_diff"] = self._build_online_diff_page(self.content_area)
         self._pages["receipts"] = self._build_receipts_page(self.content_area)
@@ -535,7 +540,13 @@ class MSSSIDoctorGUI(tk.Tk):
 
     def _show_page(self, key: str) -> None:
         p = PALETTE
+        previous = self._active_page
         self._active_page = key
+        if key != previous:
+            if key == "receipts":
+                self.refresh_receipts()
+            elif key == "troubleshooter":
+                self.refresh_troubleshooter()
         for name, frame in self._pages.items():
             if name == key:
                 frame.pack(fill="both", expand=True)
@@ -546,6 +557,113 @@ class MSSSIDoctorGUI(tk.Tk):
                 btn.configure(bg=p["surface_alt"], fg=p["emerald"])
             else:
                 btn.configure(bg=p["sidebar"], fg=p["text_muted"])
+
+    def _request_close(self) -> None:
+        if self._working.intersection(_WRITE_JOBS):
+            self.top_status_var.set("Tunggu sampai penulisan dan penyimpanan bukti perbaikan selesai.")
+            return
+        self.destroy()
+
+    def _background(self, key, work, on_result, on_error=None) -> None:
+        """Perform file/network work off-thread and consume the result only on Tk's thread."""
+        if key in self._working:
+            return
+        self._working.add(key)
+        result = SimpleQueue()
+
+        def worker():
+            try:
+                value = work()
+            except Exception as exc:
+                result.put((None, exc))
+            else:
+                result.put((value, None))
+
+        def check():
+            try:
+                value, error = result.get_nowait()
+            except Empty:
+                self.after(70, check)
+                return
+            self._working.discard(key)
+            if error is None:
+                on_result(value)
+            elif on_error is not None:
+                on_error(error)
+            else:
+                self.top_status_var.set(f"Pemeriksaan gagal. {error}")
+
+        threading.Thread(target=worker, daemon=key not in _WRITE_JOBS).start()
+        self.after(10, check)
+
+    def _build_guide_page(self, parent: tk.Widget) -> tk.Frame:
+        p = PALETTE
+        page = tk.Frame(parent, bg=p["bg"], padx=24, pady=24)
+        tk.Label(page, text="Periksa instalasi MSSHI", font=("Segoe UI", 20, "bold"),
+                 bg=p["bg"], fg=p["text"]).pack(anchor="w")
+        card = tk.Frame(page, bg=p["surface"], padx=18, pady=16,
+                        highlightbackground=p["border"], highlightthickness=1)
+        card.pack(fill="x", pady=(12, 14))
+        self.guide_status = tk.StringVar(value="Sedang memeriksa instalasi lokal…")
+        tk.Label(card, textvariable=self.guide_status, font=("Segoe UI", 11, "bold"),
+                 wraplength=600, justify="left", bg=p["surface"], fg=p["text"]).pack(anchor="w")
+        self.guide_target = tk.StringVar(value="")
+        tk.Label(card, textvariable=self.guide_target, font=("Segoe UI", 9), wraplength=600,
+                 justify="left", bg=p["surface"], fg=p["text_muted"]).pack(anchor="w", pady=(4, 6))
+        actions = tk.Frame(card, bg=p["surface"])
+        actions.pack(anchor="w")
+        self.guide_next = tk.Button(actions, text="Bandingkan file dengan GitHub", state="disabled",
+                                    command=self._guide_compare, bg=p["emerald"], fg="#081915",
+                                    relief="flat", padx=12, pady=7, font=("Segoe UI", 10, "bold"))
+        self.guide_next.pack(side="left", padx=(0, 12))
+        tk.Button(actions, text="Pilih folder MSSHI…", command=self._choose_target, relief="flat",
+                  bg=p["surface_alt"], fg=p["text"], padx=10, pady=7).pack(side="left")
+
+        tk.Label(page, text="Apa yang ingin kamu lakukan?", font=("Segoe UI", 12, "bold"),
+                 bg=p["bg"], fg=p["text"]).pack(anchor="w", pady=(4, 5))
+        for title, detail, dest in (
+            ("Lihat hasil pemeriksaan", "Lihat status profil bot, skill, dan alat lokal.", "dashboard"),
+            ("Hermes sulit dibuka atau lambat", "Periksa layar abu-abu, gateway, dan pemuatan skill.", "troubleshooter"),
+            ("Batalkan perbaikan sebelumnya", "Pilih bukti perbaikan untuk melihat pratinjau pemulihan.", "receipts"),
+        ):
+            row = tk.Frame(page, bg=p["bg"])
+            row.pack(fill="x", pady=4)
+            tk.Button(row, text=title, command=lambda key=dest: self._show_page(key),
+                      anchor="w", width=33, bg=p["surface_alt"], fg=p["cyan"], relief="flat",
+                      padx=9, pady=6, font=("Segoe UI", 9, "bold")).pack(side="left")
+            tk.Label(row, text=detail, wraplength=320, justify="left", bg=p["bg"],
+                     fg=p["text_muted"], font=("Segoe UI", 9)).pack(side="left", padx=(10, 0))
+        return page
+
+    def _guide_compare(self) -> None:
+        self._show_page("online_diff")
+        self.run_online_check()
+
+    def _choose_target(self) -> None:
+        if self._working:
+            self.top_status_var.set("Tunggu hingga pemeriksaan selesai sebelum mengganti folder.")
+            return
+        name = filedialog.askdirectory(parent=self, title="Pilih folder instalasi MSSHI", mustexist=True)
+        if not name:
+            return
+        try:
+            if is_zone3_protected(name):
+                raise ValueError("Pilih folder program MSSHI yang berada di luar direktori pribadi.")
+            target = reject_links(Path(name))
+            markers = ("VERSION.json", "scripts/msshi_cli.py", "INSTALL_FOR_AGENTS.md")
+            if sum(reject_links(target / m).is_file() for m in markers) < 2:
+                raise ValueError("Pilih folder utama MSSHI. Doctor mengenalinya dari VERSION.json, "
+                                 "scripts/msshi_cli.py dan INSTALL_FOR_AGENTS.md.")
+        except (OSError, ValueError) as exc:
+            messagebox.showwarning("Folder belum sesuai", str(exc), parent=self)
+            return
+        self.target_root = target
+        self._ref_var.set(detect_target_ref(target))
+        self._diff_report = None
+        self._checked_paths.clear()
+        self._populate_diff_tree()
+        self._update_repair_button_state()
+        self.refresh_local_dashboard()
 
     # ------------------------------------------------------------------
     # PANEL 1: DASHBOARD KESEHATAN
@@ -723,7 +841,7 @@ class MSSSIDoctorGUI(tk.Tk):
         top_row.pack(fill="x")
         tk.Label(
             top_row,
-            text=f"Online GitHub Sync & Diff — {UPSTREAM_FULL_NAME}",
+            text="Bandingkan file program dengan GitHub",
             font=("Segoe UI", 12, "bold"),
             fg=p["text"],
             bg=p["surface"],
@@ -742,7 +860,7 @@ class MSSSIDoctorGUI(tk.Tk):
 
         mid_row = tk.Frame(ctrl, bg=p["surface"])
         mid_row.pack(fill="x", pady=(10, 4))
-        tk.Label(mid_row, text="Target Ref:", font=("Segoe UI", 9), fg=p["text_muted"], bg=p["surface"]).pack(side="left")
+        tk.Label(mid_row, text="Versi sumber", font=("Segoe UI", 9), fg=p["text_muted"], bg=p["surface"]).pack(side="left")
         ref_combo = ttk.Combobox(
             mid_row, textvariable=self._ref_var, values=(self.default_ref, DEFAULT_REF, "main"), width=14, style="Dark.TCombobox"
         )
@@ -787,9 +905,7 @@ class MSSSIDoctorGUI(tk.Tk):
         )
         self.repair_selected_btn.pack(side="right")
 
-        self.diff_meta_var = tk.StringVar(
-            value="Zero full-clone: menggunakan GitHub REST API + ETag caching. Aman untuk RAM 4 GB & kuota hemat."
-        )
+        self.diff_meta_var = tk.StringVar(value=f"Sumber resmi   {UPSTREAM_FULL_NAME}")
         tk.Label(
             ctrl,
             textvariable=self.diff_meta_var,
@@ -797,6 +913,9 @@ class MSSSIDoctorGUI(tk.Tk):
             fg=p["text_muted"],
             bg=p["surface"],
         ).pack(anchor="w", pady=(6, 0))
+        self.diff_next = tk.StringVar(value="Mulai dengan cakupan core untuk memeriksa file program utama.")
+        tk.Label(ctrl, textvariable=self.diff_next, font=("Segoe UI", 9), fg=p["cyan"],
+                 bg=p["surface"], justify="left", wraplength=710).pack(anchor="w", pady=(4, 0))
 
         # Summary & Filter strip
         strip = tk.Frame(page, bg=p["bg"])
@@ -839,7 +958,7 @@ class MSSSIDoctorGUI(tk.Tk):
         sel_row.pack(fill="x", pady=(0, 6))
         tk.Button(
             sel_row,
-            text="Pilih Semua File Inti Bermasalah",
+            text="Pilih semua, termasuk perubahan lokal",
             command=self._select_all_repairable,
             bg=p["surface_alt"],
             fg=p["text"],
@@ -863,7 +982,7 @@ class MSSSIDoctorGUI(tk.Tk):
         ).pack(side="left")
         tk.Label(
             sel_row,
-            text="Klik baris untuk mencentang [x] file Zona 1 yang akan diperbaiki.",
+            text="Klik baris untuk memilih. DRIFTED bisa berupa perubahan milikmu.",
             font=("Segoe UI", 8),
             fg=p["text_dim"],
             bg=p["bg"],
@@ -1030,16 +1149,16 @@ class MSSSIDoctorGUI(tk.Tk):
     def refresh_local_dashboard(self) -> None:
         self.top_status_var.set("Memindai status lokal MSSHI & Hermes (read-only, 0 panggilan model)...")
 
-        def worker() -> None:
-            snap = collect_local_snapshot(
-                hermes_home=self.hermes_home,
-                msshi_home=self.msshi_home,
-                target_root=self.target_root,
-                run_cli=True,
-            )
-            self.after(0, lambda: self._render_local_snapshot(snap))
+        def on_error(exc):
+            self.guide_status.set("Pemeriksaan lokal gagal. Periksa folder yang dipilih, lalu coba lagi.")
+            self.guide_target.set(str(exc))
+            self.top_status_var.set("Pemeriksaan lokal gagal.")
+            self.guide_next.configure(state="disabled")
 
-        threading.Thread(target=worker, daemon=True).start()
+        self._background("local", lambda: collect_local_snapshot(
+            hermes_home=self.hermes_home, msshi_home=self._launcher_home,
+            target_root=self.target_root, run_cli=True,
+        ), self._render_local_snapshot, on_error)
 
     def _render_local_snapshot(self, snap: dict) -> None:
         p = PALETTE
@@ -1051,6 +1170,16 @@ class MSSSIDoctorGUI(tk.Tk):
             if not self._ref_var.get():
                 self._ref_var.set(self.default_ref)
 
+        has_target = bool(self.target_root and self.target_root.is_dir())
+        self.guide_next.configure(state="normal" if has_target else "disabled")
+        if has_target:
+            self.guide_target.set(str(self.target_root))
+            self.guide_status.set("Pemeriksaan lokal selesai. Bandingkan file inti untuk melihat perbedaannya."
+                                  if snap.get("status") == "HEALTHY"
+                                  else "Ada hal yang perlu diperiksa. Lihat hasil lokal atau bandingkan file inti.")
+        else:
+            self.guide_status.set("Instalasi MSSHI belum ditemukan.")
+            self.guide_target.set("Jika sudah terpasang, pilih folder program MSSHI. Untuk instalasi baru, ikuti panduan pemasangan MSSHI.")
         status = str(snap.get("status") or "UNKNOWN")
         if status == "HEALTHY":
             self.overall_badge.configure(text="HEALTHY", fg=p["emerald"], bg=p["emerald_soft"])
@@ -1119,12 +1248,15 @@ class MSSSIDoctorGUI(tk.Tk):
             )
 
     def _prompt_local_doctor_fix(self) -> None:
+        if self._working.intersection(_WRITE_JOBS | {"preview", "rollback_preview"}):
+            self.top_status_var.set("Tunggu hingga tindakan yang sedang berjalan selesai.")
+            return
         ok = messagebox.askyesno(
             "Konfirmasi Perbaikan Lokal",
             (
-                "Jalankan perbaikan lokal aman bawaan `msshi doctor --fix --json`?\n\n"
-                "Tindakan ini hanya memperbaiki struktur inti MSSHI secara lokal "
-                "dan tidak akan mengubah SOUL.md, .env, atau pilihan model Anda."
+                "Jalankan perbaikan bawaan MSSHI pada instalasi yang memakai profil Hermes berikut?\n\n"
+                f"{self.hermes_home}\n\n"
+                "Jika hanya ingin membandingkan file program, pilih Bandingkan dengan GitHub."
             ),
             parent=self,
         )
@@ -1132,11 +1264,9 @@ class MSSSIDoctorGUI(tk.Tk):
             return
         self.top_status_var.set("Menjalankan `msshi doctor --fix --json`...")
 
-        def worker() -> None:
-            res = run_local_doctor_fix(msshi_home=self.msshi_home)
-            self.after(0, lambda: self._on_local_fix_done(res))
-
-        threading.Thread(target=worker, daemon=True).start()
+        self._background("local_fix", lambda: run_local_doctor_fix(
+            msshi_home=self._launcher_home, hermes_home=self.hermes_home,
+        ), self._on_local_fix_done)
 
     def _on_local_fix_done(self, res: dict) -> None:
         if res.get("ok"):
@@ -1156,24 +1286,37 @@ class MSSSIDoctorGUI(tk.Tk):
                 parent=self,
             )
             return
+        if "diff" in self._working or "preview" in self._working:
+            return
         ref = self._ref_var.get().strip() or self.default_ref
         scope = self._scope_var.get().strip() or "core"
         self.check_online_btn.configure(state="disabled", text="Memeriksa GitHub...")
+        self.diff_next.set("Sedang membandingkan file. Daftar pilihan akan muncul setelah pemeriksaan selesai.")
         self.online_conn_badge.configure(text="CHECKING...", fg=PALETTE["cyan"], bg=PALETTE["cyan_soft"])
 
-        def worker() -> None:
-            fallback = self.hermes_home / "msshi-upstream"
-            rep = run_online_diff(
-                self.target_root,
-                ref=ref,
-                hermes_home=self.hermes_home,
-                scope=scope,
-                cache_dir=self.cache_dir,
-                local_fallback_root=fallback if fallback.is_dir() else None,
-            )
-            self.after(0, lambda: self._render_diff_report(rep))
+        target = self.target_root
+        self._diff_report = None
+        self._checked_paths.clear()
+        self._populate_diff_tree()
+        self._update_repair_button_state()
 
-        threading.Thread(target=worker, daemon=True).start()
+        def fetch():
+            fallback = self.hermes_home / "msshi-upstream"
+            return run_online_diff(target, ref=ref, hermes_home=self.hermes_home,
+                                   scope=scope, cache_dir=self.cache_dir,
+                                   local_fallback_root=fallback if fallback.is_dir() else None)
+
+        def failed(exc):
+            self.check_online_btn.configure(state="normal", text="Coba periksa lagi")
+            self.online_conn_badge.configure(text="GAGAL")
+            self.diff_meta_var.set(f"Perbandingan gagal. {exc}")
+            self.diff_next.set("Periksa koneksi lalu coba lagi atau buka hasil pemeriksaan lokal.")
+
+        def done(report):
+            self._scanned_options = (ref, scope)
+            self._render_diff_report(report)
+
+        self._background("diff", fetch, done, failed)
 
     def _render_diff_report(self, report: dict) -> None:
         p = PALETTE
@@ -1208,12 +1351,24 @@ class MSSSIDoctorGUI(tk.Tk):
             f"Zona 3 (Skip Total): {s.get('zone3_strict_rules_count', 0)} jalur lokal sensitif dilewati."
         )
 
-        # Auto-select repairable Zone 1 items by default for easy preview
+        # Keep potentially intentional local customizations opt-in.
         self._checked_paths = {
             row["rel_path"]
             for row in report.get("files", [])
-            if row.get("status") in ("MISSING", "CORRUPTED", "DRIFTED") and row.get("repairable")
+            if row.get("status") in ("MISSING", "CORRUPTED") and row.get("repairable")
         }
+        if conn not in ("ONLINE_OK", "ONLINE_ETAG_CACHED") or not report.get("commit_sha"):
+            self.diff_next.set("Versi GitHub belum dapat diverifikasi. Periksa koneksi lalu coba lagi.")
+        elif self._checked_paths:
+            self.diff_next.set("File hilang atau rusak sudah dicentang. Periksa pilihan, lalu buka pratinjau. "
+                               "File DRIFTED berisi perbedaan lokal yang perlu kamu tinjau sendiri.")
+        elif s.get("drifted", 0):
+            self.diff_next.set("Ada file yang berbeda dari GitHub (DRIFTED). Centang hanya jika ingin "
+                               "mengganti perubahan lokal dengan salinan GitHub.")
+        elif s.get("healthy", 0):
+            self.diff_next.set("File yang diperiksa cocok dengan GitHub. Jika Hermes masih bermasalah, pilih Cari penyebab masalah.")
+        else:
+            self.diff_next.set("Belum ada file yang bisa diperbaiki. Periksa folder MSSHI dan versi sumber.")
         self._populate_diff_tree()
         self._update_repair_button_state()
 
@@ -1283,6 +1438,8 @@ class MSSSIDoctorGUI(tk.Tk):
     def _update_repair_button_state(self) -> None:
         can_online = bool(
             self._diff_report
+            and self._scanned_options == (self._ref_var.get().strip() or self.default_ref, self._scope_var.get().strip() or "core")
+            and "preview" not in self._working
             and self._diff_report.get("commit_sha")
             and self._diff_report.get("connection_status") in ("ONLINE_OK", "ONLINE_ETAG_CACHED")
         )
@@ -1293,51 +1450,57 @@ class MSSSIDoctorGUI(tk.Tk):
             self.repair_selected_btn.configure(state="disabled", text="Preview & Perbaiki Terpilih")
 
     def _open_repair_modal(self) -> None:
-        if not self.target_root or not self._checked_paths:
+        if str(self.repair_selected_btn.cget("state")) == "disabled" or not self._diff_report:
+            return
+        if self._working.intersection(_WRITE_JOBS | {"rollback_preview"}):
+            self.top_status_var.set("Tunggu hingga tindakan yang sedang berjalan selesai.")
             return
         selected = sorted(self._checked_paths)
-        ref = self._ref_var.get().strip() or self.default_ref
-        scope = self._scope_var.get().strip() or "core"
-        try:
-            plan = plan_online_repair(
-                self.target_root,
-                self.hermes_home,
-                ref=ref,
-                scope=scope,
-                selected_files=selected,
-                cache_dir=self.cache_dir,
+        target = self.target_root
+        ref = self._diff_report["commit_sha"]
+        scope = self._diff_report["scope"]
+        self.repair_selected_btn.configure(text="Menyiapkan pratinjau…", state="disabled")
+
+        def ready(plan):
+            self._update_repair_button_state()
+            if (self._scanned_options != (self._ref_var.get().strip() or self.default_ref, self._scope_var.get().strip() or "core")
+                    or self._checked_paths != set(selected)):
+                messagebox.showinfo("Pilihan berubah", "Periksa pilihan terbaru sebelum membuka pratinjau lagi.", parent=self)
+                return
+            if not plan["can_apply"]:
+                messagebox.showinfo("Pratinjau", "File sudah sesuai atau GitHub belum terjangkau. Ulangi perbandingan.", parent=self)
+                return
+            if plan["commit_sha"] != ref:
+                messagebox.showerror("Versi sumber berubah", "Ulangi perbandingan sebelum melanjutkan.", parent=self)
+                return
+            SafeRepairConfirmModal(
+                self, plan, target_root=target, hermes_home=self.hermes_home,
+                msshi_home=self._launcher_home, selected_files=[r["rel_path"] for r in plan["planned_files"]],
+                ref=ref, scope=scope, cache_dir=self.cache_dir, on_success=self._on_online_repair_finished,
             )
-        except Exception as exc:
-            messagebox.showerror("Tidak Dapat Membuat Preview", str(exc), parent=self)
-            return
 
-        SafeRepairConfirmModal(
-            self,
-            plan,
-            target_root=self.target_root,
-            hermes_home=self.hermes_home,
-            msshi_home=self.msshi_home,
-            selected_files=selected,
-            ref=ref,
-            scope=scope,
-            cache_dir=self.cache_dir,
-            on_success=self._on_online_repair_finished,
-        )
+        def failed(exc):
+            self._update_repair_button_state()
+            messagebox.showerror("Pratinjau gagal", str(exc), parent=self)
 
-    def _on_online_repair_finished(self, _res: dict) -> None:
+        self._background("preview", lambda: plan_online_repair(
+            target, self.hermes_home, ref=ref, scope=scope, selected_files=selected, cache_dir=self.cache_dir,
+        ), ready, failed)
+
+    def _on_online_repair_finished(self, res: dict) -> None:
+        self._latest_repair_id = res.get("receipt_id")
+        self._show_page("receipts")
         self.refresh_local_dashboard()
-        self.run_online_check()
-        self.refresh_receipts()
+        self._diff_report = None
+        self._checked_paths.clear()
+        self._populate_diff_tree()
+        self._update_repair_button_state()
 
     # ------------------------------------------------------------------
     # RECEIPT & ROLLBACK EXPLORER
     # ------------------------------------------------------------------
     def refresh_receipts(self) -> None:
-        def worker() -> None:
-            items = discover_receipts(self.hermes_home)
-            self.after(0, lambda: self._render_receipts(items))
-
-        threading.Thread(target=worker, daemon=True).start()
+        self._background("receipts", lambda: discover_receipts(self.hermes_home), self._render_receipts)
 
     def _render_receipts(self, items: list[dict]) -> None:
         self._receipts_list = items
@@ -1362,6 +1525,11 @@ class MSSSIDoctorGUI(tk.Tk):
                     str(rec.get("timestamp_utc", ""))[:19],
                 ),
             )
+
+            if self._latest_repair_id and rec["receipt_id"] == self._latest_repair_id:
+                self.receipts_tree.selection_set(str(idx))
+                self.receipts_tree.see(str(idx))
+                self._latest_repair_id = None
 
     def _on_receipt_select(self, _event) -> None:
         sel = self.receipts_tree.selection()
@@ -1391,47 +1559,50 @@ class MSSSIDoctorGUI(tk.Tk):
         rec = self._selected_receipt
         if not rec or not rec.get("can_one_click_rollback"):
             return
-        try:
-            preview = rollback_online_repair(self.hermes_home, rec["path"], apply=False)
-        except Exception as exc:
-            messagebox.showerror("Gagal Preview Rollback", str(exc), parent=self)
+        if self._working.intersection(_WRITE_JOBS | {"preview", "rollback_preview"}):
+            self.top_status_var.set("Tunggu hingga tindakan yang sedang berjalan selesai.")
             return
+        self._background("rollback_preview", lambda: rollback_online_repair(self.hermes_home, rec["path"], apply=False),
+                         lambda preview: self._confirm_rollback(rec, preview),
+                         lambda exc: messagebox.showerror("Pratinjau pemulihan gagal", str(exc), parent=self))
 
-        msg = (
-            f"Rollback Receipt: {preview.get('receipt_id')}\n\n"
-            f"• File dipulihkan dari backup : {len(preview.get('restored_files', []))}\n"
-            f"• File baru yang akan dihapus : {len(preview.get('removed_created_files', []))}\n"
-            f"• Konflik perubahan manual    : {len(preview.get('conflicts', []))}\n\n"
-            "Lanjutkan rollback atomik sekarang?"
-        )
-        if not messagebox.askyesno("Konfirmasi 1-Click Rollback", msg, parent=self):
+    def _confirm_rollback(self, rec: dict, preview: dict) -> None:
+        if self._selected_receipt != rec or self._active_page != "receipts":
             return
-        try:
-            res = rollback_online_repair(self.hermes_home, rec["path"], apply=True)
-            messagebox.showinfo(
-                "Rollback Selesai",
-                (
-                    f"Status: {res.get('state')}\n"
-                    f"Dipulihkan: {len(res.get('restored_files', []))} file\n"
-                    f"Dihapus: {len(res.get('removed_created_files', []))} file\n"
-                    f"Konflik: {len(res.get('conflicts', []))}"
-                ),
-                parent=self,
-            )
-            self.refresh_receipts()
-            self.refresh_local_dashboard()
-        except Exception as exc:
-            messagebox.showerror("Rollback Gagal", str(exc), parent=self)
+        msg = (
+            f"Bukti perbaikan   {preview.get('receipt_id')}\n\n"
+            f"File yang akan dipulihkan dari cadangan   {len(preview.get('restored_files', []))}\n"
+            f"File baru dari perbaikan yang akan dihapus   {len(preview.get('removed_created_files', []))}\n"
+            f"File yang akan dilewati karena konflik   {len(preview.get('conflicts', []))}\n\n"
+            "Kembalikan file sesuai pratinjau ini?"
+        )
+        if not messagebox.askyesno("Konfirmasi pemulihan", msg, parent=self):
+            return
+        self._background("rollback", lambda: rollback_online_repair(self.hermes_home, rec["path"], apply=True),
+                         self._on_rollback_done,
+                         lambda exc: messagebox.showerror("Pemulihan gagal", str(exc), parent=self))
+
+    def _on_rollback_done(self, res: dict) -> None:
+        conflicts = len(res.get("conflicts", []))
+        show = messagebox.showwarning if conflicts else messagebox.showinfo
+        show("Hasil pemulihan",
+             f"File dipulihkan   {len(res.get('restored_files', []))}\n"
+             f"File dihapus   {len(res.get('removed_created_files', []))}\n"
+             f"Konflik yang perlu diperiksa   {conflicts}", parent=self)
+        self._diff_report = None
+        self._checked_paths.clear()
+        self._populate_diff_tree()
+        self._update_repair_button_state()
+        self.refresh_receipts()
+        self.refresh_local_dashboard()
 
     # ------------------------------------------------------------------
     # TROUBLESHOOTER CEPAT
     # ------------------------------------------------------------------
     def refresh_troubleshooter(self) -> None:
-        def worker() -> None:
-            rep = run_all_troubleshooter_checks(hermes_home=self.hermes_home, msshi_home=self.msshi_home)
-            self.after(0, lambda: self._render_troubleshooter(rep))
-
-        threading.Thread(target=worker, daemon=True).start()
+        self._background("troubleshooter", lambda: run_all_troubleshooter_checks(
+            hermes_home=self.hermes_home, msshi_home=self._launcher_home,
+        ), self._render_troubleshooter)
 
     def _render_troubleshooter(self, report: dict) -> None:
         p = PALETTE
@@ -1515,7 +1686,7 @@ class MSSSIDoctorGUI(tk.Tk):
             parent=self,
         ):
             return
-        res = launch_hermes_software_rendering(hermes_home=self.hermes_home, msshi_home=self.msshi_home)
+        res = launch_hermes_software_rendering(hermes_home=self.hermes_home, msshi_home=self._launcher_home)
         if res.get("ok"):
             self.top_status_var.set("Hermes Desktop diluncurkan dengan mode software rendering.")
         else:
