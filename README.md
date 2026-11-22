@@ -6,6 +6,8 @@ Hermes menampilkan layar abu-abu? Panel Skills macet? Ada file MSSHI yang terhap
 
 **Versi aplikasi Doctor 1.1.0** · **Panduan untuk MSSHI v3.1.2** · [Lihat rilis MSSHI yang dijadikan pembanding](https://github.com/zidanaisar624/MSSHI-Mega-Semar-Sang-Hyang-Ismaya/tree/v3.1.2)
 
+[![Dukung via Saweria](https://img.shields.io/badge/Dukung%20via%20Saweria-QRIS%20%7C%20Mulai%20Rp25rb%20%2F%20Pro%20Rp100rb-F59E0B?style=for-the-badge)](https://saweria.co/muzas)
+
 ## Mulai di Windows
 
 | Yang kamu punya | Cara membuka |
@@ -110,5 +112,13 @@ python -B -m unittest discover -s tests -v
 node --test tests/guide.test.cjs
 cargo test --locked --offline --manifest-path tools/preflight/Cargo.toml
 ```
+
+## Dukung Pengembangan / Support
+
+[![Dukung via Saweria](https://img.shields.io/badge/Dukung%20via%20Saweria-QRIS%20%7C%20Mulai%20Rp25rb%20%2F%20Pro%20Rp100rb-F59E0B?style=for-the-badge)](https://saweria.co/muzas)
+
+Proyek inti **MSSHI Doctor** tetap **open-source** dan bebas digunakan oleh siapa saja. Jika bermanfaat, dukungan sukarela melalui [Saweria (`https://saweria.co/muzas`)](https://saweria.co/muzas) membantu kelanjutan riset, pengujian, serta pembaruan rutin aplikasi ini.
+
+---
 
 [Alur build Windows](.github/workflows/check.yml) · [Ilustrasi Doctor di aplikasi](assets/msshi-doctor-banner.jpg) · [Laporan implementasi awal v1.0 (PDF)](docs/reports/Laporan_Implementasi_MSSHI_Doctor_App.pdf) · [Lisensi MIT](LICENSE)
