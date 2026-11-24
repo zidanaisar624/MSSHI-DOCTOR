@@ -12,7 +12,7 @@ const situations = {
     after: "Jika Hermes menyatakan sedang memperbarui aplikasi, tunggu pembaruan selesai sebelum mencoba membuka ulang."
   },
   files: {
-    title: "Bandingkan dengan MSSHI v3.1.2", command: ".\\msshi-doctor.cmd --online --ref v3.1.2",
+    title: "Bandingkan dengan MSSHI v3.2.0", command: ".\\msshi-doctor.cmd --online --ref v3.2.0",
     detail: "Doctor mengambil daftar file rilis resmi dan menunjukkan file yang hilang, rusak, atau berbeda.",
     after: "Periksa versi dan daftar file. Jika perbedaan memang perlu dipulihkan, pilih file tersebut di aplikasi lalu buka pratinjau."
   },
@@ -20,6 +20,11 @@ const situations = {
     title: "Temukan catatan perbaikan", command: ".\\msshi-doctor.cmd --receipts",
     detail: "Cari catatan dengan waktu dan target yang cocok dengan perbaikan yang ingin kamu batalkan.",
     after: "Buka catatan online-repair di panel pemulihan. Periksa konflik sebelum mengonfirmasi rollback."
+  },
+  app_update: {
+    title: "Cek pembaruan aplikasi MSSHI Doctor", command: ".\\msshi-doctor.cmd --check-app-update",
+    detail: "Memeriksa rilis terbaru khusus repositori MSSHI-DOCTOR tanpa mengubah file instalasi MSSHI lokal.",
+    after: "Jika ada versi baru, tinjau changelog terlebih dahulu lalu jalankan --self-update --dry-run."
   }
 };
 

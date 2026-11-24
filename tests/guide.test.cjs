@@ -5,7 +5,7 @@ const {situations, decodeReport, interpretReport} = require("../docs/panduan/gui
 
 test("setiap gejala mengarah ke pemeriksaan yang dapat disalin", () => {
   for (const s of Object.values(situations)) {
-    assert.match(s.command, /^\.\\msshi-doctor\.cmd --(local|receipts|online|troubleshoot)( |$)/);
+    assert.match(s.command, /^\.\\msshi-doctor\.cmd --(local|receipts|online|troubleshoot|check-app-update)( |$)/);
     assert.doesNotMatch(s.command, /--apply/);
   }
 });

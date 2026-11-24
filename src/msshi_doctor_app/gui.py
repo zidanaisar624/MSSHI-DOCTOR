@@ -9,12 +9,14 @@ from queue import Empty, SimpleQueue
 import threading
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
+import webbrowser
 
 from .constants import (
     APP_NAME,
     APP_VERSION,
     DEFAULT_REF,
     PALETTE,
+    SAWERIA_URL,
     UPSTREAM_FULL_NAME,
     resolve_assets_dir,
     resolve_cache_dir,
@@ -35,6 +37,7 @@ from .repair_engine import (
     run_local_doctor_fix,
 )
 from .safety import is_zone3_protected, reject_links
+from .self_update import check_app_update
 from .troubleshooter import launch_hermes_software_rendering, run_all_troubleshooter_checks
 
 
@@ -488,7 +491,7 @@ class MSSSIDoctorGUI(tk.Tk):
         spacer.pack(fill="both", expand=True)
 
         safety_box = tk.Frame(sidebar, bg=p["surface"], highlightbackground=p["border"], highlightthickness=1, padx=12, pady=10)
-        safety_box.pack(fill="x", padx=12, pady=14)
+        safety_box.pack(fill="x", padx=12, pady=(10, 8))
         tk.Label(safety_box, text="Mode Aman Aktif", font=("Segoe UI", 9, "bold"), fg=p["emerald"], bg=p["surface"]).pack(anchor="w")
         tk.Label(
             safety_box,
@@ -498,6 +501,35 @@ class MSSSIDoctorGUI(tk.Tk):
             bg=p["surface"],
             justify="left",
         ).pack(anchor="w", pady=(4, 0))
+
+        footer_actions = tk.Frame(sidebar, bg=p["sidebar"])
+        footer_actions.pack(fill="x", padx=12, pady=(0, 12))
+        tk.Button(
+            footer_actions,
+            text="Cek Update Doctor",
+            command=self._check_app_self_update,
+            bg=p["surface_alt"],
+            fg=p["cyan"],
+            activebackground=p["surface_hover"],
+            activeforeground=p["text"],
+            relief="flat",
+            pady=6,
+            font=("Segoe UI", 8, "bold"),
+            cursor="hand2",
+        ).pack(fill="x", pady=(0, 6))
+        tk.Button(
+            footer_actions,
+            text="Dukung via Saweria",
+            command=self._open_saweria,
+            bg=p["amber_soft"],
+            fg=p["amber"],
+            activebackground=p["surface_hover"],
+            activeforeground=p["text"],
+            relief="flat",
+            pady=6,
+            font=("Segoe UI", 8, "bold"),
+            cursor="hand2",
+        ).pack(fill="x")
 
         # Main workspace container
         main_col = tk.Frame(self, bg=p["bg"])
@@ -1691,6 +1723,55 @@ class MSSSIDoctorGUI(tk.Tk):
             self.top_status_var.set("Hermes Desktop diluncurkan dengan mode software rendering.")
         else:
             messagebox.showerror("Gagal Meluncurkan Hermes", str(res.get("error")), parent=self)
+
+    def _open_saweria(self) -> None:
+        try:
+            webbrowser.open(SAWERIA_URL)
+            self.top_status_var.set("Membuka halaman dukungan Saweria di browser.")
+        except Exception:
+            self._copy_command(SAWERIA_URL)
+
+    def _check_app_self_update(self) -> None:
+        self.top_status_var.set("Memeriksa rilis terbaru MSSHI Doctor di GitHub...")
+
+        def work():
+            return check_app_update(cache_dir=self.cache_dir)
+
+        def done(report: dict) -> None:
+            status = report.get("connection_status", "")
+            if report.get("update_available"):
+                self.top_status_var.set(f"Pembaruan Doctor tersedia: v{report.get('latest_version')}")
+                summary = (
+                    f"Versi terpasang: v{report.get('current_version')}\n"
+                    f"Versi terbaru  : v{report.get('latest_version')} ({report.get('latest_tag')})\n"
+                    f"Repositori     : {report.get('app_repo')}\n\n"
+                    f"Ringkasan Changelog:\n{(report.get('changelog') or 'Lihat halaman rilis GitHub.')[:700]}\n\n"
+                    "Buka halaman rilis resmi GitHub untuk melihat detail & mengunduh?"
+                )
+                if messagebox.askyesno("Pembaruan MSSHI Doctor Tersedia", summary, parent=self):
+                    webbrowser.open(str(report.get("release_url") or SAWERIA_URL))
+            elif status in ("ONLINE_OK", "ONLINE_ETAG_CACHED", "NO_RELEASES_YET"):
+                self.top_status_var.set(f"MSSHI Doctor v{report.get('current_version')} sudah versi terbaru.")
+                messagebox.showinfo(
+                    "MSSHI Doctor Sudah Terbaru",
+                    f"Anda sudah memakai MSSHI Doctor v{report.get('current_version')}.\n"
+                    f"Repositori aplikasi: {report.get('app_repo')}\n\n"
+                    f"Dukung pengembangan: {SAWERIA_URL}",
+                    parent=self,
+                )
+            else:
+                self.top_status_var.set("Gagal memeriksa pembaruan Doctor (offline / batas API).")
+                messagebox.showwarning(
+                    "Pemeriksaan Update Belum Terverifikasi",
+                    f"Status: {status}\n{report.get('error_message') or 'Periksa koneksi internet lalu coba lagi.'}",
+                    parent=self,
+                )
+
+        def fail(exc: Exception) -> None:
+            self.top_status_var.set("Gagal memeriksa pembaruan Doctor.")
+            messagebox.showwarning("Gagal Cek Update", str(exc), parent=self)
+
+        self._background("app_self_update", work, done, fail)
 
 
 def launch_gui(

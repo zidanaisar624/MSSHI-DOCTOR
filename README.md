@@ -4,7 +4,7 @@
 
 Hermes menampilkan layar abu-abu? Panel Skills macet? Ada file MSSHI yang terhapus? **Mulai dengan pemeriksaan lokal.** Doctor menunjukkan lokasi yang diperiksa, membandingkan file program dengan rilis resmi yang kamu pilih, dan menyediakan cadangan untuk perbaikan file online. Pemeriksaan ini berjalan tanpa chat atau kredit model.
 
-**Versi aplikasi Doctor 1.1.0** · **Panduan untuk MSSHI v3.1.2** · [Lihat rilis MSSHI yang dijadikan pembanding](https://github.com/zidanaisar624/MSSHI-Mega-Semar-Sang-Hyang-Ismaya/tree/v3.1.2)
+**Versi aplikasi Doctor 1.2.0** · **Panduan untuk MSSHI v3.2.0** · [Lihat rilis MSSHI yang dijadikan pembanding](https://github.com/zidanaisar624/MSSHI-Mega-Semar-Sang-Hyang-Ismaya)
 
 [![Dukung via Saweria](https://img.shields.io/badge/Dukung%20via%20Saweria-QRIS%20%7C%20Mulai%20Rp25rb%20%2F%20Pro%20Rp100rb-F59E0B?style=for-the-badge)](https://saweria.co/muzas)
 
@@ -20,7 +20,7 @@ Jika kamu mengunduh dari Actions, buka hasil pemeriksaan bertanda centang, pilih
 
 1. Di layar **Mulai di sini**, periksa alamat instalasi MSSHI. Jika keliru, klik **Pilih folder MSSHI…**. Pilih folder program yang berisi antara lain `VERSION.json` dan `scripts/msshi_cli.py`.
 2. Jika Hermes sulit dibuka, pilih **Hermes sulit dibuka atau lambat**. Jika kamu mencurigai ada file program yang hilang, pilih **Bandingkan file dengan GitHub**.
-3. Untuk instalasi yang mengikuti tag tetap, pilih **v3.1.2**. Gunakan **main** bila instalasimu memang mengikuti pembaruan di cabang itu. File dari `main` yang lebih baru bisa berbeda dari tag meski nomor versi di laptop masih sama.
+3. Untuk instalasi yang mengikuti tag tetap, pilih **v3.2.0** (atau **v3.1.2** sesuai versi lokalmu). Gunakan **main** bila instalasimu memang mengikuti pembaruan di cabang itu. File dari `main` yang lebih baru bisa berbeda dari tag meski nomor versi di laptop masih sama.
 4. Baca hasilnya. Bila file perlu dikembalikan, pilih file, klik **Preview & Perbaiki Terpilih**, lalu cocokkan nama file dan commit sumber. Klik **Jalankan Perbaikan Aman** setelah kamu setuju. Simpan ID bukti perbaikan (*receipt*) agar perubahan bisa ditelusuri.
 
 ![Layar awal aplikasi Doctor pada contoh instalasi Windows](docs/panduan/tampilan-doctor.png)
@@ -67,18 +67,20 @@ Jalankan dari folder yang berisi `msshi-doctor.cmd`. Perbandingan online memerlu
 | Keperluan | Perintah |
 | --- | --- |
 | Cek versi Doctor | `.\msshi-doctor.cmd --version` |
+| Cek pembaruan aplikasi Doctor (`MSSHI-DOCTOR`) | `.\msshi-doctor.cmd --check-app-update` |
+| Pratinjau self-update aman Doctor | `.\msshi-doctor.cmd --self-update --dry-run` |
 | Lihat instalasi dan profil | `.\msshi-doctor.cmd --local` |
 | Periksa metadata tanpa memanggil CLI MSSHI | `.\msshi-doctor.cmd --local --skip-cli` |
 | Telusuri masalah saat membuka Hermes | `.\msshi-doctor.cmd --troubleshoot` |
-| Bandingkan file inti dengan tag v3.1.2 | `.\msshi-doctor.cmd --online --ref v3.1.2` |
-| Pratinjau pemulihan satu file | `.\msshi-doctor.cmd --online-fix --dry-run --ref v3.1.2 --files VERSION.json` |
+| Bandingkan file inti dengan tag v3.2.0 | `.\msshi-doctor.cmd --online --ref v3.2.0` |
+| Pratinjau pemulihan satu file | `.\msshi-doctor.cmd --online-fix --dry-run --ref v3.2.0 --files VERSION.json` |
 | Daftar bukti perbaikan | `.\msshi-doctor.cmd --receipts` |
 | Lihat seluruh opsi | `.\msshi-doctor.cmd --help` |
 
 **Contoh pemulihan.** Jika pratinjau menunjukkan bahwa `VERSION.json` memang perlu dikembalikan, terapkan pilihan itu dengan perintah berikut. Untuk instalasi di folder khusus, sertakan `--target-root` dengan jalur yang sama pada pemeriksaan, pratinjau, dan penerapan. Opsi `--hermes-home` dan `--msshi-home` tersedia untuk memilih folder profil dan peluncur secara eksplisit.
 
 ```powershell
-.\msshi-doctor.cmd --online-fix --apply --ref v3.1.2 --files VERSION.json
+.\msshi-doctor.cmd --online-fix --apply --ref v3.2.0 --files VERSION.json
 ```
 
 Pada CLI, pertahankan `--files` untuk membatasi perbaikan ke pilihanmu. Jika daftar itu dihilangkan, semua perbedaan inti yang memenuhi syarat dapat ikut dipulihkan.

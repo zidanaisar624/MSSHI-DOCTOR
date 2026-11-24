@@ -25,6 +25,8 @@ try {
     $dist = Join-Path $work 'dist'
     & $Python -I -m PyInstaller --noconfirm --distpath $dist --workpath (Join-Path $work 'pyinstaller') (Join-Path $repo 'build\msshi-doctor.spec')
     if ($LASTEXITCODE -ne 0) { throw 'Pembuatan aplikasi Doctor gagal.' }
+    & $Python -I -m PyInstaller --noconfirm --distpath $dist --workpath (Join-Path $work 'pyinstaller-onefile') (Join-Path $repo 'build\msshi-doctor-portable.spec')
+    if ($LASTEXITCODE -ne 0) { throw 'Pembuatan biner 1-Klik MSSHI-Doctor-Portable-win-x64.exe gagal.' }
 
     $stage = Join-Path $dist 'MSSHI-Doctor'
     Copy-Item -LiteralPath (Join-Path $rustDir 'release\msshi-preflight.exe') -Destination $stage
@@ -51,8 +53,17 @@ try {
     $archive = Join-Path $work $zipName
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     [IO.Compression.ZipFile]::CreateFromDirectory($stage, $archive)
-    Move-Item -LiteralPath $archive -Destination (Join-Path $output $zipName) -Force
-    Write-Output (Join-Path $output $zipName)
+    $destZip = Join-Path $output $zipName
+    $destExe = Join-Path $output 'MSSHI-Doctor-Portable-win-x64.exe'
+    Move-Item -LiteralPath $archive -Destination $destZip -Force
+    Move-Item -LiteralPath (Join-Path $dist 'MSSHI-Doctor-Portable-win-x64.exe') -Destination $destExe -Force
+    $hashExe = (Get-FileHash -LiteralPath $destExe -Algorithm SHA256).Hash.ToLower()
+    $hashZip = (Get-FileHash -LiteralPath $destZip -Algorithm SHA256).Hash.ToLower()
+    @(
+        "$hashExe  MSSHI-Doctor-Portable-win-x64.exe",
+        "$hashZip  $zipName"
+    ) | Out-File -Encoding ascii (Join-Path $output 'SHA256SUMS.txt')
+    Write-Output $destZip
 } finally {
     $resolvedWork = (Resolve-Path -LiteralPath $work).Path
     if ([IO.Path]::GetDirectoryName($resolvedWork) -eq $tempParent -and [IO.Path]::GetFileName($resolvedWork) -match '^msshi-doctor-build-[0-9a-f]{32}$') {

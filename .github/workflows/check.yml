@@ -39,5 +39,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: MSSHI-Doctor-Windows-x64
-          path: dist/MSSHI-Doctor-*-windows-x64.zip
+          path: |
+            dist/MSSHI-Doctor-Portable-win-x64.exe
+            dist/MSSHI-Doctor-*-windows-x64.zip
+            dist/SHA256SUMS.txt
           if-no-files-found: error

@@ -31,6 +31,7 @@ from .repair_engine import (
     rollback_online_repair,
     run_local_doctor_fix,
 )
+from .self_update import check_app_update, run_self_update
 from .troubleshooter import run_all_troubleshooter_checks
 
 
@@ -210,12 +211,22 @@ def build_parser() -> argparse.ArgumentParser:
         help="Preview atau eksekusi rollback untuk receipt online-repair (sertakan --apply untuk menerapkan).",
     )
     parser.add_argument("--troubleshoot", action="store_true", help="Jalankan 5 pemeriksaan troubleshooter cepat.")
+    parser.add_argument(
+        "--check-app-update",
+        action="store_true",
+        help="Cek versi terbaru aplikasi MSSHI Doctor di zidanaisar624/MSSHI-DOCTOR (read-only).",
+    )
+    parser.add_argument(
+        "--self-update",
+        action="store_true",
+        help="Preview (--dry-run) atau siapkan staging self-update aplikasi MSSHI Doctor (--apply).",
+    )
 
     parser.add_argument("--dry-run", action="store_true", help="Mode preview tanpa menulis file.")
     parser.add_argument("--apply", action="store_true", help="Terapkan aksi perbaikan/rollback secara atomik.")
     parser.add_argument("--yes", action="store_true", help="Konfirmasi non-interaktif untuk otomatisasi.")
     parser.add_argument("--json", action="store_true", help="Cetak keluaran JSON terstruktur.")
-    parser.add_argument("--ref", help="Target branch/tag/commit GitHub (default otomatis dari VERSION.json atau v3.1.2).")
+    parser.add_argument("--ref", help="Target branch/tag/commit GitHub (default otomatis dari VERSION.json atau v3.2.0).")
     parser.add_argument("--scope", choices=("core", "full"), default="core", help="Cakupan audit file Zona 1.")
     parser.add_argument("--files", nargs="+", help="Daftar path relatif Zona 1 yang dipilih untuk --online-fix.")
     parser.add_argument("--target-root", help="Path eksplisit direktori instalasi MSSHI lokal.")
@@ -269,6 +280,8 @@ def run_cli(argv: list[str] | None = None, *, client: GitHubClient | None = None
         args.receipts,
         bool(args.rollback),
         args.troubleshoot,
+        args.check_app_update,
+        args.self_update,
     ))
     if not explicit_modes:
         args.local = True
@@ -420,6 +433,40 @@ def run_cli(argv: list[str] | None = None, *, client: GitHubClient | None = None
             else:
                 _print_troubleshoot_human(report)
             return exit_code
+
+        if args.check_app_update:
+            report = check_app_update(cache_dir=cache_dir)
+            if args.json:
+                _emit_json(report)
+            else:
+                print(f"{APP_NAME} v{APP_VERSION} — Cek Self-Update ({report.get('app_repo')})")
+                print(f"Koneksi       : {report.get('connection_status')} (cache={report.get('from_cache')})")
+                print(f"Versi Lokal   : v{report.get('current_version')}")
+                print(f"Versi GitHub  : v{report.get('latest_version')} ({report.get('latest_tag')})")
+                if report.get("update_available"):
+                    print(f"Status        : PEMBARUAN TERSEDIA -> {report.get('release_url')}")
+                    if report.get("changelog"):
+                        print("\n[Ringkasan Changelog]\n" + report["changelog"][:800])
+                    print("\nJalankan --self-update --dry-run untuk pratinjau pembaruan aman.")
+                elif report.get("error_message"):
+                    print(f"Catatan       : {report.get('error_message')}")
+                else:
+                    print("Status        : Sudah versi terbaru.")
+            return int(report.get("exit_code", EXIT_HEALTHY))
+
+        if args.self_update:
+            do_apply = bool(args.apply and not args.dry_run)
+            report = run_self_update(apply=do_apply, cache_dir=cache_dir)
+            if args.json:
+                _emit_json(report)
+            else:
+                print(f"{APP_NAME} v{APP_VERSION} — Self-Update ({'APPLY' if do_apply else 'DRY-RUN'})")
+                print(f"Repo Aplikasi : {report.get('app_repo')} ({report.get('connection_status')})")
+                print(f"Versi         : v{report.get('current_version')} -> v{report.get('latest_version')}")
+                print(f"Catatan       : {report.get('note') or report.get('error_message') or '-'}")
+                if report.get("handoff_script"):
+                    print(f"Handoff Cmd   : {report.get('handoff_script')}")
+            return int(report.get("exit_code", EXIT_HEALTHY))
 
     except (OSError, ValueError) as exc:
         err_payload = {

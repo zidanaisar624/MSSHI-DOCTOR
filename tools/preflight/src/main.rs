@@ -8,10 +8,13 @@ use std::{
     time::{Duration, Instant},
 };
 
-const HELP: &str = "MSSHI Doctor • Pemeriksaan awal\n\
-Pemakaian: msshi-preflight [--doctor-dir FOLDER] [--hermes-home FOLDER]\n\
+const VERSION: &str = "1.2.0";
+
+const HELP: &str = "MSSHI Doctor • Pemeriksaan awal (v1.2.0)\n\
+Pemakaian: msshi-preflight [--doctor-dir FOLDER] [--hermes-home FOLDER] [--json]\n\
 Jalankan dari paket portabel atau folder sumber Doctor, atau tentukan --doctor-dir.\n\
 Opsi --hermes-home memeriksa keberadaan folder Hermes dan penanda pembaruan.\n\
+Opsi --json mencetak keluaran JSON terstruktur untuk integrasi cepat.\n\
 Pemeriksaan ini berjalan offline tanpa membuka aplikasi, profil, atau konfigurasi.\n\
 Kode keluar: 0 = siap, 2 = perlu perhatian, 1 = argumen tidak valid.";
 
@@ -30,19 +33,30 @@ except Exception:
 struct Options {
     doctor_dir: PathBuf,
     hermes_home: Option<PathBuf>,
+    json: bool,
 }
 
 fn parse(args: impl Iterator<Item = OsString>) -> Result<Option<Options>, String> {
     let mut args = args;
-    let mut options = Options { doctor_dir: default_doctor_dir(), hermes_home: None };
+    let mut options = Options {
+        doctor_dir: default_doctor_dir(),
+        hermes_home: None,
+        json: false,
+    };
     while let Some(flag) = args.next() {
         if flag == "--help" || flag == "-h" {
             return Ok(None);
         }
+        if flag == "--json" {
+            options.json = true;
+            continue;
+        }
         if flag != "--doctor-dir" && flag != "--hermes-home" {
             return Err(format!("Opsi tidak dikenal: {}", flag.to_string_lossy()));
         }
-        let path = args.next().filter(|arg| !arg.is_empty() && !arg.to_string_lossy().starts_with("--"))
+        let path = args
+            .next()
+            .filter(|arg| !arg.is_empty() && !arg.to_string_lossy().starts_with("--"))
             .ok_or_else(|| format!("Isi folder untuk {}.", flag.to_string_lossy()))?;
         if flag == "--doctor-dir" {
             options.doctor_dir = path.into();
@@ -54,7 +68,55 @@ fn parse(args: impl Iterator<Item = OsString>) -> Result<Option<Options>, String
 }
 
 #[derive(Debug, PartialEq, Eq)]
-enum Runtime { Ready, CliOnly, Old, Missing, Unavailable }
+enum Runtime {
+    Ready,
+    CliOnly,
+    Old,
+    Missing,
+    Unavailable,
+}
+
+impl Runtime {
+    fn as_str(&self) -> &'static str {
+        match self {
+            Runtime::Ready => "ready",
+            Runtime::CliOnly => "cli_only",
+            Runtime::Old => "old",
+            Runtime::Missing => "missing",
+            Runtime::Unavailable => "unavailable",
+        }
+    }
+}
+
+fn json_escape(input: &str) -> String {
+    let mut out = String::with_capacity(input.len() + 8);
+    for ch in input.chars() {
+        match ch {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out
+}
+
+// Non-invasive check whether Windows process appears elevated (Anti-Admin-Lock guard).
+fn check_windows_elevated() -> bool {
+    if !cfg!(windows) {
+        return false;
+    }
+    Command::new("fltmc")
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
 
 // Only search absolute PATH directories. Do not launch a file found via the current
 // project directory or an uninstalled Windows Store execution alias.
@@ -63,17 +125,25 @@ fn executable(name: &str, paths: &OsStr) -> Option<PathBuf> {
         .filter(|p| p.is_absolute())
         .map(|p| p.join(name))
         .find(|p| {
-            let is_store_alias = cfg!(windows) && p.parent().and_then(Path::file_name)
-                .is_some_and(|dir| dir.eq_ignore_ascii_case("WindowsApps"));
+            let is_store_alias = cfg!(windows)
+                && p.parent()
+                    .and_then(Path::file_name)
+                    .is_some_and(|dir| dir.eq_ignore_ascii_case("WindowsApps"));
             !is_store_alias && p.is_file()
         })
 }
 
 fn inspect_python(program: &Path, is_launcher: bool) -> io::Result<Runtime> {
     let mut command = Command::new(program);
-    if is_launcher { command.arg("-3"); }
-    let mut child = command.args(["-I", "-B", "-S", "-c", PYTHON_CHECK])
-        .stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn()?;
+    if is_launcher {
+        command.arg("-3");
+    }
+    let mut child = command
+        .args(["-I", "-B", "-S", "-c", PYTHON_CHECK])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()?;
     let start = Instant::now();
     loop {
         if let Some(status) = child.try_wait()? {
@@ -95,7 +165,11 @@ fn inspect_python(program: &Path, is_launcher: bool) -> io::Result<Runtime> {
 
 fn find_runtime() -> Runtime {
     let paths = env::var_os("PATH").unwrap_or_default();
-    let names = if cfg!(windows) { ["python.exe", "py.exe"] } else { ["python3", "python"] };
+    let names = if cfg!(windows) {
+        ["python.exe", "py.exe"]
+    } else {
+        ["python3", "python"]
+    };
     for name in names {
         if let Some(program) = executable(name, &paths) {
             return inspect_python(&program, name == "py.exe").unwrap_or(Runtime::Unavailable);
@@ -105,33 +179,49 @@ fn find_runtime() -> Runtime {
 }
 
 const SOURCE_FILES: &[&str] = &[
-    "MSSHI_Doctor.bat", "msshi-doctor.cmd", "src/msshi_doctor_app/cli.py",
-    "src/msshi_doctor_app/gui.py", "src/msshi_doctor_app/__main__.py",
+    "MSSHI_Doctor.bat",
+    "msshi-doctor.cmd",
+    "src/msshi_doctor_app/cli.py",
+    "src/msshi_doctor_app/gui.py",
+    "src/msshi_doctor_app/__main__.py",
 ];
 const PORTABLE_FILES: &[&str] = &[
-    "MSSHI-Doctor.exe", "msshi-doctor-cli.exe", "msshi-doctor.cmd",
-    "_internal/_tk_data/tk.tcl", "_internal/_tcl_data/init.tcl",
+    "MSSHI-Doctor.exe",
+    "msshi-doctor-cli.exe",
+    "msshi-doctor.cmd",
+    "_internal/_tk_data/tk.tcl",
+    "_internal/_tcl_data/init.tcl",
 ];
 
 fn is_portable(root: &Path) -> bool {
-    ["MSSHI-Doctor.exe", "msshi-doctor-cli.exe", "_internal"].iter()
+    ["MSSHI-Doctor.exe", "msshi-doctor-cli.exe", "_internal"]
+        .iter()
         .any(|name| root.join(name).exists())
 }
 
 fn default_doctor_dir() -> PathBuf {
-    env::current_exe().ok().and_then(|exe| {
-        exe.parent().filter(|parent| is_portable(parent)).map(Path::to_owned)
-    }).unwrap_or_else(|| PathBuf::from("."))
+    env::current_exe()
+        .ok()
+        .and_then(|exe| {
+            exe.parent()
+                .filter(|parent| is_portable(parent))
+                .map(Path::to_owned)
+        })
+        .unwrap_or_else(|| PathBuf::from("."))
 }
 
 fn missing_files(root: &Path, expected: &'static [&'static str]) -> Vec<&'static str> {
-    expected.iter().copied()
+    expected
+        .iter()
+        .copied()
         .filter(|name| !fs::metadata(root.join(name)).is_ok_and(|f| f.is_file() && f.len() > 0))
         .collect()
 }
 
 fn check_home(home: &Path) -> Result<(), &'static str> {
-    if !home.is_dir() { return Err("Folder Hermes belum ditemukan. Periksa pilihan --hermes-home."); }
+    if !home.is_dir() {
+        return Err("Folder Hermes belum ditemukan. Periksa pilihan --hermes-home.");
+    }
     match fs::symlink_metadata(home.join(".hermes-update-in-progress")) {
         Ok(_) => Err("Ada penanda pembaruan. Periksa progres pembaruan Hermes sebelum mencoba perbaikan."),
         Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
@@ -140,11 +230,53 @@ fn check_home(home: &Path) -> Result<(), &'static str> {
 }
 
 fn run(options: Options) -> i32 {
-    println!("MSSHI Doctor • Pemeriksaan awal");
     let portable = is_portable(&options.doctor_dir);
     let expected = if portable { PORTABLE_FILES } else { SOURCE_FILES };
     let missing = missing_files(&options.doctor_dir, expected);
     let mut ready = missing.is_empty();
+    let elevated = check_windows_elevated();
+
+    let runtime = if portable {
+        Runtime::Ready
+    } else {
+        let rt = find_runtime();
+        ready &= rt == Runtime::Ready;
+        rt
+    };
+
+    let home_error: Option<&'static str> = match options.hermes_home.as_deref() {
+        Some(home) => match check_home(home) {
+            Ok(()) => None,
+            Err(reason) => {
+                ready = false;
+                Some(reason)
+            }
+        },
+        None => None,
+    };
+
+    if options.json {
+        let missing_json = missing
+            .iter()
+            .map(|m| format!("\"{}\"", json_escape(m)))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let home_err_json = match home_error {
+            Some(msg) => format!("\"{}\"", json_escape(msg)),
+            None => "null".to_string(),
+        };
+        println!(
+            "{{\"version\":\"{VERSION}\",\"ready\":{ready},\"portable\":{portable},\"runtime\":\"{}\",\"elevated_admin\":{elevated},\"missing_files\":[{missing_json}],\"hermes_home_error\":{home_err_json},\"exit_code\":{}}}",
+            runtime.as_str(),
+            if ready { 0 } else { 2 }
+        );
+        return if ready { 0 } else { 2 };
+    }
+
+    println!("MSSHI Doctor • Pemeriksaan awal (v{VERSION})");
+    if elevated {
+        println!("[PERINGATAN] Berjalan sebagai Administrator! Jalankan sebagai user biasa agar file Hermes tidak terkunci ACL.");
+    }
     if missing.is_empty() {
         println!("[OK] Berkas peluncur Doctor tersedia.");
     } else {
@@ -154,20 +286,21 @@ fn run(options: Options) -> i32 {
     if portable {
         println!("Paket portabel menggunakan Python dan Tcl/Tk bawaan.");
     } else {
-        let runtime = find_runtime();
-        ready &= runtime == Runtime::Ready;
-        println!("{}", match runtime {
-        Runtime::Ready => "[OK] Python 3.10+ dan Tcl/Tk terdeteksi.",
-        Runtime::CliOnly => "[CEK] Python tersedia. Gunakan CLI atau aktifkan Tcl/Tk pada instalasi Python untuk GUI.",
-        Runtime::Old => "[CEK] Python yang ditemukan terlalu lama. Pilih Python 3.10 atau lebih baru.",
-        Runtime::Missing => "[CEK] Peluncur Python belum ditemukan di PATH. Pasang Python 3.10+ beserta Tcl/Tk.",
-        Runtime::Unavailable => "[CEK] Python gagal dimulai dalam batas pemeriksaan. Coba periksa python --version.",
-        });
+        println!(
+            "{}",
+            match runtime {
+                Runtime::Ready => "[OK] Python 3.10+ dan Tcl/Tk terdeteksi.",
+                Runtime::CliOnly => "[CEK] Python tersedia. Gunakan CLI atau aktifkan Tcl/Tk pada instalasi Python untuk GUI.",
+                Runtime::Old => "[CEK] Python yang ditemukan terlalu lama. Pilih Python 3.10 atau lebih baru.",
+                Runtime::Missing => "[CEK] Peluncur Python belum ditemukan di PATH. Pasang Python 3.10+ beserta Tcl/Tk.",
+                Runtime::Unavailable => "[CEK] Python gagal dimulai dalam batas pemeriksaan. Coba periksa python --version.",
+            }
+        );
     }
-    if let Some(home) = options.hermes_home {
-        match check_home(&home) {
-            Ok(()) => println!("[OK] Folder Hermes tersedia dan penanda pembaruan tidak ditemukan."),
-            Err(reason) => { println!("[CEK] {reason}"); ready = false; }
+    if options.hermes_home.is_some() {
+        match home_error {
+            None => println!("[OK] Folder Hermes tersedia dan penanda pembaruan tidak ditemukan."),
+            Some(reason) => println!("[CEK] {reason}"),
         }
     }
     if ready {
@@ -180,14 +313,22 @@ fn run(options: Options) -> i32 {
         };
         println!("{next}");
         0
-    } else { 2 }
+    } else {
+        2
+    }
 }
 
 fn main() {
     let code = match parse(env::args_os().skip(1)) {
         Ok(Some(options)) => run(options),
-        Ok(None) => { println!("{HELP}"); 0 }
-        Err(reason) => { eprintln!("{reason}\n{HELP}"); 1 }
+        Ok(None) => {
+            println!("{HELP}");
+            0
+        }
+        Err(reason) => {
+            eprintln!("{reason}\n{HELP}");
+            1
+        }
     };
     process::exit(code);
 }
@@ -198,13 +339,25 @@ mod tests {
     use std::time::SystemTime;
 
     #[test]
-    fn options_accept_spaces_and_reject_missing_values() {
-        let parsed = parse(["--doctor-dir", "repo with spaces", "--hermes-home", "H"].map(OsString::from).into_iter()).unwrap().unwrap();
+    fn options_accept_spaces_json_and_reject_missing_values() {
+        let parsed = parse(
+            ["--doctor-dir", "repo with spaces", "--hermes-home", "H", "--json"]
+                .map(OsString::from)
+                .into_iter(),
+        )
+        .unwrap()
+        .unwrap();
         assert_eq!(parsed.doctor_dir, Path::new("repo with spaces"));
         assert_eq!(parsed.hermes_home.as_deref(), Some(Path::new("H")));
+        assert!(parsed.json);
         assert!(parse(["--doctor-dir", "--hermes-home"].map(OsString::from).into_iter()).is_err());
         assert!(parse(["--fix"].map(OsString::from).into_iter()).is_err());
         assert!(parse(["--help"].map(OsString::from).into_iter()).unwrap().is_none());
+    }
+
+    #[test]
+    fn json_escape_handles_quotes_and_backslashes() {
+        assert_eq!(json_escape("D:\\Hermes\\a\"b"), "D:\\\\Hermes\\\\a\\\"b");
     }
 
     #[test]
@@ -241,9 +394,23 @@ mod tests {
             fs::write(path, "test").unwrap();
         }
         assert!(is_portable(&root));
-        assert_eq!(run(Options { doctor_dir: root.clone(), hermes_home: None }), 0);
+        assert_eq!(
+            run(Options {
+                doctor_dir: root.clone(),
+                hermes_home: None,
+                json: true,
+            }),
+            0
+        );
         fs::remove_file(root.join("_internal/_tk_data/tk.tcl")).unwrap();
-        assert_eq!(run(Options { doctor_dir: root.clone(), hermes_home: None }), 2);
+        assert_eq!(
+            run(Options {
+                doctor_dir: root.clone(),
+                hermes_home: None,
+                json: false,
+            }),
+            2
+        );
         fs::remove_dir_all(root).unwrap();
     }
 }
