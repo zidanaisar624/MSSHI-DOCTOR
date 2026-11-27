@@ -12,7 +12,7 @@ const situations = {
     after: "Jika Hermes menyatakan sedang memperbarui aplikasi, tunggu pembaruan selesai sebelum mencoba membuka ulang."
   },
   files: {
-    title: "Bandingkan dengan MSSHI v3.2.0", command: ".\\msshi-doctor.cmd --online --ref v3.2.0",
+    title: "Bandingkan dengan MSSHI v3.2.1", command: ".\\msshi-doctor.cmd --online --ref v3.2.1",
     detail: "Doctor mengambil daftar file rilis resmi dan menunjukkan file yang hilang, rusak, atau berbeda.",
     after: "Periksa versi dan daftar file. Jika perbedaan memang perlu dipulihkan, pilih file tersebut di aplikasi lalu buka pratinjau."
   },

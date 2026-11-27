@@ -190,6 +190,8 @@ const PORTABLE_FILES: &[&str] = &[
     "msshi-doctor-cli.exe",
     "msshi-doctor.cmd",
     "_internal/_tk_data/tk.tcl",
+    "_internal/base_library.zip",
+    "_internal/_tkinter.pyd",
     "_internal/_tcl_data/init.tcl",
 ];
 
@@ -218,6 +220,16 @@ fn missing_files(root: &Path, expected: &'static [&'static str]) -> Vec<&'static
         .collect()
 }
 
+fn has_python_dll(root: &Path) -> bool {
+    let Ok(entries) = fs::read_dir(root.join("_internal")) else { return false; };
+    entries.flatten().any(|entry| {
+        let name = entry.file_name().to_string_lossy().to_ascii_lowercase();
+        name.strip_prefix("python3").and_then(|tail| tail.strip_suffix(".dll"))
+            .is_some_and(|version| !version.is_empty() && version.bytes().all(|b| b.is_ascii_digit()))
+            && entry.metadata().is_ok_and(|file| file.is_file() && file.len() > 0)
+    })
+}
+
 fn check_home(home: &Path) -> Result<(), &'static str> {
     if !home.is_dir() {
         return Err("Folder Hermes belum ditemukan. Periksa pilihan --hermes-home.");
@@ -232,7 +244,10 @@ fn check_home(home: &Path) -> Result<(), &'static str> {
 fn run(options: Options) -> i32 {
     let portable = is_portable(&options.doctor_dir);
     let expected = if portable { PORTABLE_FILES } else { SOURCE_FILES };
-    let missing = missing_files(&options.doctor_dir, expected);
+    let mut missing = missing_files(&options.doctor_dir, expected);
+    if portable && !has_python_dll(&options.doctor_dir) {
+        missing.push("_internal/python3<versi>.dll");
+    }
     let mut ready = missing.is_empty();
     let elevated = check_windows_elevated();
 
@@ -393,6 +408,10 @@ mod tests {
             fs::create_dir_all(path.parent().unwrap()).unwrap();
             fs::write(path, "test").unwrap();
         }
+        fs::write(root.join("_internal/python3.dll"), "forwarder").unwrap();
+        assert!(!has_python_dll(&root));
+        fs::write(root.join("_internal/python312.dll"), "fixture").unwrap();
+        assert!(has_python_dll(&root));
         assert!(is_portable(&root));
         assert_eq!(
             run(Options {

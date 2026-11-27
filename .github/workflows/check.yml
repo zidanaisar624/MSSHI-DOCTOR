@@ -3,6 +3,7 @@ name: Periksa dan kemas MSSHI Doctor
 on:
   push:
     branches: [main]
+    tags: ['v*']
   pull_request:
   workflow_dispatch:
 
@@ -44,3 +45,32 @@ jobs:
             dist/MSSHI-Doctor-*-windows-x64.zip
             dist/SHA256SUMS.txt
           if-no-files-found: error
+
+  publish:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: windows
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: MSSHI-Doctor-Windows-x64
+          path: release
+      - name: Verifikasi berkas dan terbitkan rilis
+        working-directory: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          exe="MSSHI-Doctor-Portable-win-x64.exe"
+          zip="MSSHI-Doctor-${TAG#v}-windows-x64.zip"
+          test -s "$exe" && test -s "$zip"
+          diff <(awk '{print $2}' SHA256SUMS.txt | tr -d '\r' | sort) <(printf '%s\n' "$exe" "$zip" | sort)
+          tr -d '\r' < SHA256SUMS.txt | sha256sum --strict --check
+          gh release create "$TAG" "$exe" "$zip" SHA256SUMS.txt --verify-tag \
+            --title "MSSHI Doctor ${TAG}" \
+            --notes "Windows x64. Buka EXE untuk diagnosis lokal. ZIP menyertakan CLI, pemeriksa awal Rust, dan panduan offline. SHA256SUMS.txt memuat checksum kedua unduhan."

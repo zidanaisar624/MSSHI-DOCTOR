@@ -10,6 +10,10 @@ Hermes menampilkan layar abu-abu? Panel Skills macet? Ada file MSSHI yang terhap
 
 ## Mulai di Windows
 
+**[Unduh Doctor 1.2.0 untuk Windows x64 (.exe)](https://github.com/zidanaisar624/MSSHI-DOCTOR/releases/download/v1.2.0/MSSHI-Doctor-Portable-win-x64.exe)** · [Paket ZIP dengan CLI dan panduan offline](https://github.com/zidanaisar624/MSSHI-DOCTOR/releases/download/v1.2.0/MSSHI-Doctor-1.2.0-windows-x64.zip) · [Checksum SHA-256](https://github.com/zidanaisar624/MSSHI-DOCTOR/releases/download/v1.2.0/SHA256SUMS.txt)
+
+Untuk pemeriksaan pertama, buka EXE dan pilih **Mulai di sini**. ZIP berguna jika kamu juga ingin menjalankan perintah PowerShell atau menyimpan panduan untuk dibaca tanpa internet.
+
 | Yang kamu punya | Cara membuka |
 | --- | --- |
 | Paket portabel Windows x64 | Ekstrak seluruh isi ZIP ke satu folder, lalu buka **MSSHI-Doctor.exe**. Python, Node.js, dan Rust sudah tidak diperlukan di komputer pengguna paket ini. Paket hasil build tersedia pada run yang berhasil di [GitHub Actions](https://github.com/zidanaisar624/MSSHI-DOCTOR/actions/workflows/check.yml). Mengunduh artifact dari Actions memerlukan akun GitHub yang sudah masuk. |
