@@ -894,7 +894,11 @@ class MSSSIDoctorGUI(tk.Tk):
         mid_row.pack(fill="x", pady=(10, 4))
         tk.Label(mid_row, text="Versi sumber", font=("Segoe UI", 9), fg=p["text_muted"], bg=p["surface"]).pack(side="left")
         ref_combo = ttk.Combobox(
-            mid_row, textvariable=self._ref_var, values=(self.default_ref, DEFAULT_REF, "main"), width=14, style="Dark.TCombobox"
+            mid_row,
+            textvariable=self._ref_var,
+            values=tuple(dict.fromkeys((self.default_ref, DEFAULT_REF, "v3.2.1", "v3.1.2", "main"))),
+            width=14,
+            style="Dark.TCombobox",
         )
         ref_combo.pack(side="left", padx=(6, 14))
 

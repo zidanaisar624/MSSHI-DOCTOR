@@ -226,7 +226,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--apply", action="store_true", help="Terapkan aksi perbaikan/rollback secara atomik.")
     parser.add_argument("--yes", action="store_true", help="Konfirmasi non-interaktif untuk otomatisasi.")
     parser.add_argument("--json", action="store_true", help="Cetak keluaran JSON terstruktur.")
-    parser.add_argument("--ref", help="Target branch/tag/commit GitHub (default otomatis dari VERSION.json atau v3.2.1).")
+    parser.add_argument("--ref", help="Target branch/tag/commit GitHub (default otomatis dari VERSION.json atau v3.2.2).")
     parser.add_argument("--scope", choices=("core", "full"), default="core", help="Cakupan audit file Zona 1.")
     parser.add_argument("--files", nargs="+", help="Daftar path relatif Zona 1 yang dipilih untuk --online-fix.")
     parser.add_argument("--target-root", help="Path eksplisit direktori instalasi MSSHI lokal.")

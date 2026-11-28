@@ -146,7 +146,7 @@ def resolve_msshi_target_root(
 
 
 def detect_target_ref(target_root: Path | None) -> str:
-    """Detect GitHub target ref (e.g. 'v3.2.1') from local VERSION.json, defaulting safely."""
+    """Detect GitHub target ref (e.g. 'v3.2.2') from local VERSION.json, defaulting safely."""
     if target_root and (target_root / "VERSION.json").is_file():
         try:
             doc = json.loads(reject_links(target_root / "VERSION.json").read_text(encoding="utf-8-sig"))

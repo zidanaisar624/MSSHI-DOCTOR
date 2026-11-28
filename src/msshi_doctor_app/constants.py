@@ -7,12 +7,12 @@ import re
 import sys
 
 APP_NAME = "MSSHI Doctor"
-APP_VERSION = "1.2.0"
+APP_VERSION = "1.2.1"
 
 UPSTREAM_OWNER = "zidanaisar624"
 UPSTREAM_REPO = "MSSHI-Mega-Semar-Sang-Hyang-Ismaya"
 UPSTREAM_FULL_NAME = f"{UPSTREAM_OWNER}/{UPSTREAM_REPO}"
-DEFAULT_REF = "v3.2.1"
+DEFAULT_REF = "v3.2.2"
 
 APP_REPO_OWNER = "zidanaisar624"
 APP_REPO_NAME = "MSSHI-DOCTOR"
@@ -34,7 +34,7 @@ ALLOWED_APP_UPDATE_HOSTS = frozenset({
     "raw.githubusercontent.com",
 })
 
-# Official MSSHI release layout (aligned with scripts/msshi_cli.py in v3.2.1)
+# Official MSSHI release layout (aligned with scripts/msshi_cli.py in v3.2.2)
 CORE_ZONE1_DIRS = (
     "scripts",
     "hermes_plugins",
