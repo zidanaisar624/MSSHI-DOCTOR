@@ -49,6 +49,20 @@ try {
         throw 'CLI portabel gagal melaporkan versi yang sesuai.'
     }
 
+    Add-Type -AssemblyName System.Drawing
+    foreach ($exeCheck in @(
+        (Join-Path $dist 'MSSHI-Doctor-Portable-win-x64.exe'),
+        (Join-Path $stage 'MSSHI-Doctor.exe'),
+        (Join-Path $stage 'msshi-doctor-cli.exe'),
+        (Join-Path $stage 'msshi-preflight.exe')
+    )) {
+        $extractedIcon = [System.Drawing.Icon]::ExtractAssociatedIcon($exeCheck)
+        if ($null -eq $extractedIcon -or $extractedIcon.Width -le 0) {
+            throw "Ikon Win32 gagal ditanamkan ke biner: $exeCheck"
+        }
+        $extractedIcon.Dispose()
+    }
+
     $zipName = "MSSHI-Doctor-$version-windows-x64.zip"
     $archive = Join-Path $work $zipName
     Add-Type -AssemblyName System.IO.Compression.FileSystem

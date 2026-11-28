@@ -8,9 +8,9 @@ use std::{
     time::{Duration, Instant},
 };
 
-const VERSION: &str = "1.2.1";
+const VERSION: &str = "1.2.2";
 
-const HELP: &str = "MSSHI Doctor • Pemeriksaan awal (v1.2.1)\n\
+const HELP: &str = "MSSHI Doctor • Pemeriksaan awal (v1.2.2)\n\
 Pemakaian: msshi-preflight [--doctor-dir FOLDER] [--hermes-home FOLDER] [--json]\n\
 Jalankan dari paket portabel atau folder sumber Doctor, atau tentukan --doctor-dir.\n\
 Opsi --hermes-home memeriksa keberadaan folder Hermes dan penanda pembaruan.\n\

@@ -4,13 +4,13 @@
 
 Hermes menampilkan layar abu-abu? Panel Skills macet? Ada file MSSHI yang terhapus? **Mulai dengan pemeriksaan lokal.** Doctor menunjukkan lokasi yang diperiksa, membandingkan file program dengan rilis resmi yang kamu pilih, dan menyediakan cadangan untuk perbaikan file online. Pemeriksaan ini berjalan tanpa chat atau kredit model.
 
-**Versi aplikasi Doctor 1.2.1** · **Panduan untuk MSSHI v3.2.2** · [Lihat rilis MSSHI yang dijadikan pembanding](https://github.com/zidanaisar624/MSSHI-Mega-Semar-Sang-Hyang-Ismaya)
+**Versi aplikasi Doctor 1.2.2** · **Panduan untuk MSSHI v3.2.2** · [Lihat rilis MSSHI yang dijadikan pembanding](https://github.com/zidanaisar624/MSSHI-Mega-Semar-Sang-Hyang-Ismaya)
 
 [![Dukung via Saweria](https://img.shields.io/badge/Dukung%20via%20Saweria-QRIS%20%7C%20Mulai%20Rp25rb%20%2F%20Pro%20Rp100rb-F59E0B?style=for-the-badge)](https://saweria.co/muzas)
 
 ## Mulai di Windows
 
-**[Unduh Doctor 1.2.1 untuk Windows x64 (.exe)](https://github.com/zidanaisar624/MSSHI-DOCTOR/releases/download/v1.2.1/MSSHI-Doctor-Portable-win-x64.exe)** · [Paket ZIP dengan CLI dan panduan offline](https://github.com/zidanaisar624/MSSHI-DOCTOR/releases/download/v1.2.1/MSSHI-Doctor-1.2.1-windows-x64.zip) · [Checksum SHA-256](https://github.com/zidanaisar624/MSSHI-DOCTOR/releases/download/v1.2.1/SHA256SUMS.txt)
+**[Unduh Doctor 1.2.2 untuk Windows x64 (.exe)](https://github.com/zidanaisar624/MSSHI-DOCTOR/releases/download/v1.2.2/MSSHI-Doctor-Portable-win-x64.exe)** · [Paket ZIP dengan CLI dan panduan offline](https://github.com/zidanaisar624/MSSHI-DOCTOR/releases/download/v1.2.2/MSSHI-Doctor-1.2.2-windows-x64.zip) · [Checksum SHA-256](https://github.com/zidanaisar624/MSSHI-DOCTOR/releases/download/v1.2.2/SHA256SUMS.txt)
 
 Untuk pemeriksaan pertama, buka EXE dan pilih **Mulai di sini**. ZIP berguna jika kamu juga ingin menjalankan perintah PowerShell atau menyimpan panduan untuk dibaca tanpa internet.
 

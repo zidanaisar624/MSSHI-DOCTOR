@@ -2,6 +2,6 @@
 from __future__ import annotations
 
 __app_name__ = "MSSHI Doctor"
-__version__ = "1.2.1"
+__version__ = "1.2.2"
 __upstream_repo__ = "zidanaisar624/MSSHI-Mega-Semar-Sang-Hyang-Ismaya"
 __app_repo__ = "zidanaisar624/MSSHI-DOCTOR"

@@ -7,7 +7,7 @@ import re
 import sys
 
 APP_NAME = "MSSHI Doctor"
-APP_VERSION = "1.2.1"
+APP_VERSION = "1.2.2"
 
 UPSTREAM_OWNER = "zidanaisar624"
 UPSTREAM_REPO = "MSSHI-Mega-Semar-Sang-Hyang-Ismaya"

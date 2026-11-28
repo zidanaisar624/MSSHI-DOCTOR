@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "msshi-doctor-app"
-version = "1.2.1"
+version = "1.2.2"
 description = "Lightweight CLI & Desktop Diagnostics, Online GitHub Diff, and 6-Step Safe Repair App for MSSHI & Hermes Agent."
 readme = "README.md"
 license = { file = "LICENSE" }
